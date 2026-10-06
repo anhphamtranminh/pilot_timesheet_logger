@@ -70,47 +70,120 @@ def record_token_run(
     print(f"[OK] Recorded {total_tokens} tokens for session {session_id} on {date_str}")
 
 
-def scan_claude_sessions_for_date(target_date: str) -> list:
-    """Scan ~/.claude local logs if available for usage entries."""
-    claude_dir = Path.home() / ".claude"
-    if not claude_dir.exists():
-        return []
+def scan_prompt_triggered_runs(
+    keyword: str = "log",
+    target_date: str = None,
+    search_dirs: list = None
+) -> list:
+    """Scan ~/.claude (and local assistant) session transcripts to extract tokens used specifically
+    starting from when the user issued a command containing `keyword` (e.g. 'log', 'timesheet').
+    """
+    if search_dirs is None:
+        search_dirs = [
+            Path.home() / ".claude",
+            Path.home() / ".gemini" / "antigravity-cli" / "brain"
+        ]
 
-    records = []
-    for jsonl_file in claude_dir.glob("**/*.jsonl"):
-        try:
-            mtime = datetime.date.fromtimestamp(jsonl_file.stat().st_mtime).isoformat()
-            if mtime != target_date:
+    runs = []
+    for base_dir in search_dirs:
+        if not base_dir.exists():
+            continue
+
+        for jsonl_file in base_dir.glob("**/*.jsonl"):
+            # Avoid full raw transcripts if compact transcript.jsonl exists
+            if jsonl_file.name == "transcript_full.jsonl":
                 continue
 
-            session_id = jsonl_file.stem
-            in_tok = 0
-            out_tok = 0
-            cache_tok = 0
+            try:
+                file_date = datetime.date.fromtimestamp(jsonl_file.stat().st_mtime).isoformat()
+                session_id = jsonl_file.parent.name if jsonl_file.name == "transcript.jsonl" else jsonl_file.stem
 
-            with open(jsonl_file, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if '"usage"' in line:
+                with open(jsonl_file, "r", encoding="utf-8", errors="ignore") as f:
+                    current_run = None
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
                         try:
                             obj = json.loads(line)
-                            usage = obj.get("usage") or obj.get("message", {}).get("usage", {})
-                            in_tok += usage.get("input_tokens", 0)
-                            out_tok += usage.get("output_tokens", 0)
-                            cache_tok += usage.get("cache_read_input_tokens", 0) + usage.get("cache_creation_input_tokens", 0)
                         except Exception:
-                            pass
+                            continue
 
-            if in_tok + out_tok > 0:
-                records.append({
-                    "session_id": session_id,
-                    "input_tokens": in_tok,
-                    "output_tokens": out_tok,
-                    "cache_tokens": cache_tok
-                })
-        except Exception:
-            pass
+                        # Detect user input
+                        msg = obj.get("message", {})
+                        role = obj.get("role") or msg.get("role") or obj.get("type")
 
-    return records
+                        if role in ["user", "USER_INPUT"]:
+                            content = obj.get("content") or msg.get("content") or ""
+                            user_text = ""
+                            if isinstance(content, list):
+                                text_parts = [p.get("text", "") for p in content if isinstance(p, dict)]
+                                user_text = " ".join(text_parts)
+                            elif isinstance(content, str):
+                                user_text = content
+
+                            # Check if user message triggers the logging skill
+                            if keyword.lower() in user_text.lower():
+                                if current_run and (current_run["input_tokens"] + current_run["output_tokens"] > 0):
+                                    runs.append(current_run)
+
+                                run_date = file_date
+                                ts = obj.get("created_at") or obj.get("timestamp") or ""
+                                if ts and len(ts) >= 10:
+                                    run_date = ts[:10]
+
+                                current_run = {
+                                    "session_id": session_id,
+                                    "date": run_date,
+                                    "timestamp": ts,
+                                    "file": str(jsonl_file),
+                                    "prompt": user_text.strip().replace("\n", " ")[:100],
+                                    "input_tokens": 0,
+                                    "output_tokens": 0,
+                                    "cache_tokens": 0,
+                                    "steps": 0
+                                }
+                            else:
+                                if current_run:
+                                    if current_run["input_tokens"] + current_run["output_tokens"] > 0:
+                                        runs.append(current_run)
+                                    current_run = None
+
+                        # Accumulate tokens if we are in an active logging run
+                        if current_run:
+                            usage = obj.get("usage") or msg.get("usage")
+                            in_tok = 0
+                            out_tok = 0
+                            cache_tok = 0
+                            if usage:
+                                in_tok = usage.get("input_tokens", 0)
+                                out_tok = usage.get("output_tokens", 0)
+                                cache_tok = usage.get("cache_read_input_tokens", 0) + usage.get("cache_creation_input_tokens", 0)
+                            elif "input_tokens" in obj or "output_tokens" in obj:
+                                in_tok = obj.get("input_tokens", 0)
+                                out_tok = obj.get("output_tokens", 0)
+                                cache_tok = obj.get("cache_read_tokens", 0)
+
+                            if in_tok or out_tok:
+                                current_run["input_tokens"] += in_tok
+                                current_run["output_tokens"] += out_tok
+                                current_run["cache_tokens"] += cache_tok
+                                current_run["steps"] += 1
+
+                    if current_run and (current_run["input_tokens"] + current_run["output_tokens"] > 0):
+                        runs.append(current_run)
+            except Exception:
+                continue
+
+    if target_date:
+        runs = [r for r in runs if r["date"] == target_date]
+
+    return runs
+
+
+def scan_claude_sessions_for_date(target_date: str) -> list:
+    """Scan ~/.claude local logs if available for usage entries."""
+    return scan_prompt_triggered_runs(keyword="log", target_date=target_date)
 
 
 def get_all_token_records(custom_csv: Path = None) -> list:
@@ -374,8 +447,35 @@ def print_daily_summary(target_date: str):
     print(f"Token Summary for {target_date}: {total} tokens across {runs} run(s).")
 
 
+def display_scanned_runs(runs: list, budget_limit: int = 350):
+    """Print a formatted summary table of scanned session runs."""
+    if not runs:
+        print("No prompt-triggered runs found in ~/.claude or local assistant logs.")
+        return
+
+    print("=" * 110)
+    print(" SESSION TRANSCRIPT TOKEN SCANNER (Triggered by Prompt Keyword)")
+    print("=" * 110)
+    print(f" {'Date':<10} | {'Time (UTC)':<12} | {'Prompt':<38} | {'Input':<6} | {'Output':<6} | {'Total':<6} | {'Budget'}")
+    print("-" * 110)
+
+    for r in runs:
+        prompt_snippet = (r['prompt'][:35] + "...") if len(r['prompt']) > 35 else r['prompt']
+        time_part = r['timestamp'][11:19] if len(r['timestamp']) >= 19 else "N/A"
+        tot = r['input_tokens'] + r['output_tokens'] + r['cache_tokens']
+        status = "[PASS]" if tot <= budget_limit else "[OVER]"
+        print(f" {r['date']:<10} | {time_part:<12} | {prompt_snippet:<38} | {r['input_tokens']:<6} | {r['output_tokens']:<6} | {tot:<6} | {status}")
+
+    print("=" * 110)
+    print(f" Total Runs Found: {len(runs)}")
+    print("=" * 110)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Track daily token usage.")
+    parser.add_argument("--scan", action="store_true", help="Scan session transcripts starting from prompt keyword")
+    parser.add_argument("--keyword", default="log", help="Prompt keyword to detect run start (default: 'log')")
+    parser.add_argument("--auto-record", action="store_true", help="Automatically record scanned runs into CSV")
     parser.add_argument("--record", action="store_true", help="Record a new run")
     parser.add_argument("--date", default=datetime.date.today().isoformat(), help="Date YYYY-MM-DD")
     parser.add_argument("--session-id", default="", help="Session ID")
@@ -394,6 +494,19 @@ def main():
     elif args.html:
         path = generate_html_dashboard()
         print(f"[OK] Generated HTML Token Statistics Dashboard: {path}")
+    elif args.scan:
+        runs = scan_prompt_triggered_runs(keyword=args.keyword, target_date=args.date if args.date != datetime.date.today().isoformat() else None)
+        display_scanned_runs(runs)
+        if args.auto_record and runs:
+            for r in runs:
+                record_token_run(
+                    date_str=r["date"],
+                    session_id=r["session_id"],
+                    input_tokens=r["input_tokens"],
+                    output_tokens=r["output_tokens"],
+                    cache_tokens=r["cache_tokens"],
+                    notes=f"Auto-scanned prompt: {r['prompt'][:40]}"
+                )
     elif args.record:
         record_token_run(
             date_str=args.date,
