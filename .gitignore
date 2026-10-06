@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+.venv/
+
+# Secrets & Local credentials
+.env
+.env.*
+!.env.example
+credentials.json
+token.json
+token.pickle
+config.local.json
+
+# Operating System
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*~
