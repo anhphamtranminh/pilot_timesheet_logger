@@ -17,22 +17,31 @@ from config import find_project_root, load_config
 
 
 def parse_ics_datetime(dt_str: str) -> tuple:
-    """Parse iCal date/datetime string into (date_str, time_str)."""
+    """Parse iCal date/datetime string into (date_str, time_str), converting UTC to local time."""
     clean = dt_str.split(":")[-1].strip()
-    clean = clean.replace("Z", "")
+    is_utc = clean.endswith("Z")
+    val = clean.replace("Z", "")
 
-    if "T" in clean:
-        date_part, time_part = clean.split("T")
+    if "T" in val:
+        if is_utc:
+            try:
+                dt_utc = datetime.datetime.strptime(clean, "%Y%m%dT%H%M%SZ").replace(tzinfo=datetime.timezone.utc)
+                dt_local = dt_utc.astimezone()
+                return dt_local.strftime("%Y-%m-%d"), dt_local.strftime("%H:%M")
+            except Exception:
+                pass
+
+        date_part, time_part = val.split("T")
         y = date_part[0:4]
         m = date_part[4:6]
         d = date_part[6:8]
         hh = time_part[0:2]
         mm = time_part[2:4]
         return f"{y}-{m}-{d}", f"{hh}:{mm}"
-    elif len(clean) >= 8:
-        y = clean[0:4]
-        m = clean[4:6]
-        d = clean[6:8]
+    elif len(val) >= 8:
+        y = val[0:4]
+        m = val[4:6]
+        d = val[6:8]
         return f"{y}-{m}-{d}", "00:00"
     return "", ""
 
@@ -60,7 +69,7 @@ def parse_ics_content(ics_text: str, target_date: str) -> list:
             in_vevent = False
             start_date, start_time = parse_ics_datetime(current_event.get("DTSTART", ""))
             end_date, end_time = parse_ics_datetime(current_event.get("DTEND", ""))
-            summary = current_event.get("SUMMARY", "Work Block")
+            summary = current_event.get("SUMMARY", "Work Block").strip()
 
             if start_date == target_date:
                 events.append({

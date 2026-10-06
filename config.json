@@ -9,7 +9,7 @@
   ],
   "calendar": {
     "provider": "ics",
-    "ics_path_or_url": "",
+    "ics_path_or_url": "https://calendar.google.com/calendar/ical/anh.phamminh%40gradion.com/private-63a60b78886411b8e1b584d3e10efbc5/basic.ics",
     "default_blocks": [
       {
         "title": "Morning Work Block",
@@ -18,7 +18,7 @@
       },
       {
         "title": "Afternoon Work Block",
-        "start": "13:30",
+        "start": "13:00",
         "end": "18:00"
       }
     ]

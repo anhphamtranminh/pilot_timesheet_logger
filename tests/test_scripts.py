@@ -17,7 +17,7 @@ from fetch_calendar import parse_ics_content, parse_ics_datetime
 from prepare_prompt import assign_items_to_blocks, time_to_minutes
 from format_entry import format_single_entry
 from save_entry import save_or_update_block_entry, get_monthly_log_path
-from track_tokens import record_token_run, get_token_csv_path
+from track_tokens import record_token_run, get_token_csv_path, generate_ascii_chart, generate_html_dashboard
 
 
 import tempfile
@@ -30,7 +30,7 @@ class TestPilotTimesheet(unittest.TestCase):
         self.assertEqual(extract_prs_from_subject("chore: simple update"), [])
 
     def test_parse_ics_datetime(self):
-        d, t = parse_ics_datetime("20261006T093000Z")
+        d, t = parse_ics_datetime("20261006T093000")
         self.assertEqual(d, "2026-10-06")
         self.assertEqual(t, "09:30")
 
@@ -43,13 +43,13 @@ class TestPilotTimesheet(unittest.TestCase):
 VERSION:2.0
 BEGIN:VEVENT
 SUMMARY:Standup Meeting
-DTSTART:20261006T090000Z
-DTEND:20261006T093000Z
+DTSTART:20261006T090000
+DTEND:20261006T093000
 END:VEVENT
 BEGIN:VEVENT
 SUMMARY:Sprint Review
-DTSTART:20261006T140000Z
-DTEND:20261006T150000Z
+DTSTART:20261006T140000
+DTEND:20261006T150000
 END:VEVENT
 END:VCALENDAR"""
         events = parse_ics_content(sample_ics, "2026-10-06")
@@ -159,6 +159,29 @@ END:VCALENDAR"""
             self.assertEqual(occurrences, 1)
             self.assertIn("Updated run without duplicates", content)
 
+    def test_token_charts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_csv = Path(tmpdir) / "test_tokens.csv"
+            # Write a dummy test record
+            test_csv.write_text(
+                "date,session_id,input_tokens,output_tokens,cache_tokens,total_tokens,workflow_version,notes\n"
+                "2026-10-06,test-01,150,80,0,230,v1.0,Test run\n",
+                encoding="utf-8"
+            )
+
+            chart_str = generate_ascii_chart(custom_csv=test_csv)
+            self.assertIn("2026-10-06", chart_str)
+            self.assertIn("230", chart_str)
+            self.assertIn("[PASS]", chart_str)
+
+            test_html = Path(tmpdir) / "test_chart.html"
+            out_path = generate_html_dashboard(custom_csv=test_csv, output_html=test_html)
+            self.assertTrue(out_path.exists())
+            html_text = out_path.read_text(encoding="utf-8")
+            self.assertIn("2026-10-06", html_text)
+            self.assertIn("230", html_text)
+
 
 if __name__ == "__main__":
     unittest.main()
+
