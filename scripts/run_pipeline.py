@@ -38,7 +38,7 @@ def fallback_topic_grouping(commit_subjects: list, calendar_title: str) -> str:
         return ", ".join(distinct[:3]) + f", and {len(distinct) - 3} other tasks"
 
 
-def run_daily_timesheet(target_date: str, dry_run: bool = False) -> list:
+def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: dict = None) -> list:
     """Run timesheet generation pipeline for target_date."""
     payload = generate_ai_payload(target_date)
     blocks = payload.get("blocks", [])
@@ -47,12 +47,18 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False) -> list:
     print(f"\n[INFO] Processing Timesheet for {target_date}...")
     print(f"[INFO] Found {len(blocks)} time block(s). Estimated AI prompt tokens: {payload['estimated_input_tokens']}\n")
 
-    for b in blocks:
+    for idx, b in enumerate(blocks):
         commits = b.get("commit_subjects", [])
         prs = b.get("prs", [])
         cal_title = b.get("title", "Work Block")
 
-        topic_summary = fallback_topic_grouping(commits, cal_title)
+        block_id_str = str(b.get("block_id", idx + 1))
+        if custom_topics and (block_id_str in custom_topics or b.get("block_id") in custom_topics):
+            topic_summary = custom_topics.get(block_id_str) or custom_topics.get(b.get("block_id"))
+        elif isinstance(custom_topics, list) and idx < len(custom_topics):
+            topic_summary = custom_topics[idx]
+        else:
+            topic_summary = fallback_topic_grouping(commits, cal_title)
 
         entry_dict = {
             "date": target_date,
@@ -89,9 +95,17 @@ def main():
     parser = argparse.ArgumentParser(description="Run timesheet logger pipeline.")
     parser.add_argument("--date", default=datetime.date.today().isoformat(), help="Target date YYYY-MM-DD")
     parser.add_argument("--dry-run", action="store_true", help="Print entries without saving to file")
+    parser.add_argument("--topics-json", help="JSON object {block_id: topic_string} or list of topic strings synthesized by AI")
     args = parser.parse_args()
 
-    run_daily_timesheet(args.date, args.dry_run)
+    custom_topics = None
+    if args.topics_json:
+        try:
+            custom_topics = json.loads(args.topics_json)
+        except json.JSONDecodeError as e:
+            print(f"[WARN] Failed to parse --topics-json: {e}. Using fallback grouping.", file=sys.stderr)
+
+    run_daily_timesheet(args.date, args.dry_run, custom_topics)
 
 
 if __name__ == "__main__":

@@ -41,13 +41,26 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
             "repos": set()
         })
 
+    # Section 3.2: "If a day has no calendar events, still write one entry for that day, built from your commits and PRs."
     if not structured_blocks:
+        start_time = "09:00"
+        end_time = "18:00"
+        if commits:
+            times = [c.get("time") for c in commits if c.get("time")]
+            if times:
+                min_time = min(times)
+                max_time = max(times)
+                if time_to_minutes(min_time) < time_to_minutes("09:00"):
+                    start_time = min_time
+                if time_to_minutes(max_time) > time_to_minutes("18:00"):
+                    end_time = max_time
+
         structured_blocks.append({
             "block_id": 1,
             "title": "Daily Development",
-            "start_time": "09:00",
-            "end_time": "18:00",
-            "source": "fallback",
+            "start_time": start_time,
+            "end_time": end_time,
+            "source": "commits_prs",
             "commits": [],
             "prs": set(),
             "repos": set()
@@ -57,6 +70,7 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
         c_time = time_to_minutes(c.get("time", "12:00"))
         matched_block = None
 
+        # Check if commit falls within a block
         for b in structured_blocks:
             b_start = time_to_minutes(b["start_time"])
             b_end = time_to_minutes(b["end_time"])
@@ -64,8 +78,20 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
                 matched_block = b
                 break
 
+        # If not within any block, assign to earliest, latest, or nearest block
         if not matched_block:
-            matched_block = structured_blocks[-1]
+            first_start = time_to_minutes(structured_blocks[0]["start_time"])
+            last_end = time_to_minutes(structured_blocks[-1]["end_time"])
+            if c_time <= first_start:
+                matched_block = structured_blocks[0]
+            elif c_time >= last_end:
+                matched_block = structured_blocks[-1]
+            else:
+                def block_dist(b):
+                    b_s = time_to_minutes(b["start_time"])
+                    b_e = time_to_minutes(b["end_time"])
+                    return min(abs(c_time - b_s), abs(c_time - b_e))
+                matched_block = min(structured_blocks, key=block_dist)
 
         matched_block["commits"].append(c["subject"])
         matched_block["repos"].add(c["repo"])
@@ -76,9 +102,18 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
         num = p["number"]
         already_attached = any(num in b["prs"] for b in structured_blocks)
         if not already_attached:
-            structured_blocks[0]["prs"].add(num)
-            if p.get("repo"):
-                structured_blocks[0]["repos"].add(p["repo"])
+            p_repo = p.get("repo", "")
+            target_b = None
+            if p_repo:
+                for b in structured_blocks:
+                    if p_repo in b["repos"]:
+                        target_b = b
+                        break
+            if not target_b:
+                target_b = structured_blocks[0]
+            target_b["prs"].add(num)
+            if p_repo:
+                target_b["repos"].add(p_repo)
 
     result = []
     for b in structured_blocks:
@@ -87,6 +122,7 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
             "title": b["title"],
             "start_time": b["start_time"],
             "end_time": b["end_time"],
+            "source": b.get("source", "calendar"),
             "repos": sorted(list(b["repos"])),
             "prs": sorted(list(b["prs"])),
             "commit_subjects": b["commits"]

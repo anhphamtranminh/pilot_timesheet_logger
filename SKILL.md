@@ -30,17 +30,18 @@ When invoked, follow the procedure defined in `workflow.md`:
    - For each block in the output, review the commit subjects and calendar event title.
    - Formulate a concise, high-level topic description (e.g. *"Frontend contract refactoring and unit test coverage"*).
    - Keep each description to 1 concise sentence.
-3. **Save the formatted entry:**
+3. **Save the formatted entry with synthesized topics:**
    ```bash
-   python3 scripts/run_pipeline.py --date <YYYY-MM-DD>
+   python3 scripts/run_pipeline.py --date <YYYY-MM-DD> --topics-json '{"1": "<Synthesized Topic String>"}'
    ```
+   *(Or direct JSON ingestion: `python3 scripts/save_entry.py --json-input '<json>'`)*
 4. **Record token usage:**
    ```bash
    python3 scripts/track_tokens.py --record --date <YYYY-MM-DD> --input-tokens <IN> --output-tokens <OUT>
    ```
 5. **Report to User:**
    - Display the logged entries and the total tokens consumed.
-   - Note any anomalies or items needing review.
+   - Note any anomalies or items needing review in `logs/improvement_log.md`.
 
 ## File Structure
 - `config.json`: Configuration for tracked repos, author name, and calendar feeds.

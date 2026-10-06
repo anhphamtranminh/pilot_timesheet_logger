@@ -28,7 +28,7 @@ This document defines the daily execution procedure for the Personal Pilot Times
 | Step | Tag | Description | Responsible Tool / File |
 | :--- | :---: | :--- | :--- |
 | **1. Data Ingestion** | **[Script]** | Extract today's git commits, PRs (opened/reviewed/merged), and Google Calendar events/blocks. | `scripts/fetch_git.py`<br>`scripts/fetch_prs.py`<br>`scripts/fetch_calendar.py` |
-| **2. Source Aggregation** | **[Script]** | Map commits and PRs into calendar time blocks based on timestamps. Build compact payload. | `scripts/prepare_prompt.py` |
+| **2. Source Aggregation** | **[Script]** | Map commits and PRs into calendar time blocks based on timestamps. Build compact payload. Collapses into 1 consolidated daily entry if no calendar events exist (Section 3.2). | `scripts/prepare_prompt.py` |
 | **3. Topic Synthesis** | **[AI]** | Evaluate time blocks: synthesize commit subjects into grouped high-level topics; verify work relevance. | AI Assistant (Judgment) |
 | **4. Entry Formatting** | **[Script]** | Validate required fields (`Date`, `Start time`, `End time`, `Description`, `PRs:` inline, source trace) and render standard Section 3.2 markdown. | `scripts/format_entry.py` |
 | **5. Persistent Storage** | **[Script]** | Idempotently write entries to monthly log (`logs/timesheet_YYYY-MM.md`). Overwrite matching time blocks without duplicate entries. | `scripts/save_entry.py` |
@@ -48,14 +48,30 @@ This document defines the daily execution procedure for the Personal Pilot Times
 
 ---
 
-## 4. Execution Command
+## 4. Execution Commands
 
-To execute the daily pipeline end-to-end:
+### A. End-to-End Execution with AI Topic Synthesis (Standard Workflow)
+```bash
+# 1. Pre-aggregate sources into minimal payload:
+python3 scripts/prepare_prompt.py
+
+# 2. (AI synthesizes concise topic per block)
+
+# 3. Format and save with synthesized topics:
+python3 scripts/run_pipeline.py --topics-json '{"1": "<AI Synthesized Topic>"}'
+```
+
+### B. Dry-Run Preview (No Disk Writes)
+```bash
+python3 scripts/run_pipeline.py --dry-run
+```
+
+### C. Offline / Fallback Run (Deterministic Regex Topic Grouping)
 ```bash
 python3 scripts/run_pipeline.py
 ```
 
-For dry-run preview:
+### D. Direct JSON Entry Ingestion
 ```bash
-python3 scripts/run_pipeline.py --dry-run
+python3 scripts/save_entry.py --json-input '{"date": "2026-10-06", "entries": [{"start_time": "08:00", "end_time": "18:00", "topic": "Daily Development", "bullets": ["Core task"], "prs": ["#1"], "sources": ["git:1"]}]}'
 ```

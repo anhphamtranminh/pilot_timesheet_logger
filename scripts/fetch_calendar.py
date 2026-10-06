@@ -107,8 +107,8 @@ def fetch_events_from_source(source: str, target_date: str) -> list:
     return []
 
 
-def fetch_all_events(target_date: str) -> list:
-    """Fetch calendar events or fall back to default work blocks."""
+def fetch_all_events(target_date: str, include_defaults: bool = False) -> list:
+    """Fetch calendar events from configured source or local .ics."""
     config = load_config()
     cal_cfg = config.get("calendar", {})
     ics_source = cal_cfg.get("ics_path_or_url", "")
@@ -122,8 +122,8 @@ def fetch_all_events(target_date: str) -> list:
         if local_ics.exists():
             events = fetch_events_from_source(str(local_ics), target_date)
 
-    # Fallback to configured default blocks if no calendar events found (Section 3.2)
-    if not events:
+    # Only fall back to default template blocks if explicitly requested
+    if not events and include_defaults:
         default_blocks = cal_cfg.get("default_blocks", [
             {"title": "Morning Work Block", "start": "09:00", "end": "12:00"},
             {"title": "Afternoon Work Block", "start": "13:30", "end": "18:00"}

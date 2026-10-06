@@ -61,8 +61,9 @@ def fetch_prs_via_gh_cli(target_date: str, username: str) -> list:
             if check.returncode == 0:
                 prs = []
                 seen = set()
-                query = f"author:{username} updated:{target_date}" if username else f"updated:{target_date}"
-                cmd = [bin_path, "search", "prs", query, "--json", "number,title,repository,state,url"]
+                # Section 3.1: "Pull PRs you opened, reviewed, or that merged today"
+                query = f"involves:{username} updated:{target_date}" if username else f"updated:{target_date}"
+                cmd = [bin_path, "search", "prs", query, "--json", "number,title,repository,state,url,author"]
                 res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 if res.returncode == 0 and res.stdout.strip():
                     items = json.loads(res.stdout)
@@ -70,11 +71,24 @@ def fetch_prs_via_gh_cli(target_date: str, username: str) -> list:
                         num = f"#{item.get('number')}"
                         if num not in seen:
                             seen.add(num)
+                            raw_state = item.get("state", "open").lower()
+                            author_login = item.get("author", {}).get("login", "")
+                            
+                            # Determine status: opened, reviewed, or merged
+                            if raw_state == "merged":
+                                status = "merged"
+                            elif username and author_login and author_login.lower() != username.lower():
+                                status = "reviewed"
+                            elif raw_state == "open":
+                                status = "opened"
+                            else:
+                                status = raw_state
+
                             prs.append({
                                 "number": num,
                                 "title": item.get("title", ""),
                                 "repo": item.get("repository", {}).get("name", ""),
-                                "status": item.get("state", "open").lower(),
+                                "status": status,
                                 "url": item.get("url", "")
                             })
                 return prs

@@ -43,14 +43,14 @@ def init_log_file_if_missing(file_path: Path, month_str: str):
         file_path.write_text(header, encoding="utf-8")
 
 
-def save_or_update_block_entry(entry_dict: dict) -> bool:
+def save_or_update_block_entry(entry_dict: dict, custom_log_path: Path = None) -> bool:
     """Save or update a timesheet block entry, preventing duplicate time blocks."""
     date_str = entry_dict.get("date", datetime.date.today().isoformat())
     start_time = entry_dict.get("start_time", "09:00")
     end_time = entry_dict.get("end_time", "12:00")
     month_str = date_str[:7]
 
-    log_path = get_monthly_log_path(date_str)
+    log_path = custom_log_path if custom_log_path else get_monthly_log_path(date_str)
     init_log_file_if_missing(log_path, month_str)
 
     content = log_path.read_text(encoding="utf-8")
@@ -88,17 +88,37 @@ def save_or_update_block_entry(entry_dict: dict) -> bool:
 def main():
     parser = argparse.ArgumentParser(description="Save timesheet entry.")
     parser.add_argument("--json-file", help="Path to JSON file containing entry or list of entries")
+    parser.add_argument("--json-input", help="JSON string or '-' for stdin containing entry or list of entries")
     args = parser.parse_args()
 
-    if args.json_file:
+    data = None
+    if args.json_input:
+        raw = sys.stdin.read() if args.json_input == "-" else args.json_input
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            print(f"[ERROR] Failed to parse JSON input: {e}", file=sys.stderr)
+            sys.exit(1)
+    elif args.json_file:
         p = Path(args.json_file)
         if p.exists():
-            data = json.loads(p.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                for item in data:
-                    save_or_update_block_entry(item)
-            elif isinstance(data, dict):
-                save_or_update_block_entry(data)
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as e:
+                print(f"[ERROR] Failed to parse JSON file: {e}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print(f"[ERROR] File not found: {args.json_file}", file=sys.stderr)
+            sys.exit(1)
+
+    if data:
+        if isinstance(data, list):
+            for item in data:
+                save_or_update_block_entry(item)
+        elif isinstance(data, dict):
+            save_or_update_block_entry(data)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":

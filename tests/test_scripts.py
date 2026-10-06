@@ -20,6 +20,8 @@ from save_entry import save_or_update_block_entry, get_monthly_log_path
 from track_tokens import record_token_run, get_token_csv_path
 
 
+import tempfile
+
 class TestPilotTimesheet(unittest.TestCase):
 
     def test_extract_prs_from_subject(self):
@@ -75,6 +77,30 @@ END:VCALENDAR"""
         self.assertIn("fix: bug in parser", assigned[1]["commit_subjects"])
         self.assertIn("#2", assigned[1]["prs"])
 
+    def test_assign_items_zero_calendar_events_rule(self):
+        """Section 3.2: If a day has no calendar events, still write ONE entry for that day."""
+        commits = [
+            {"repo": "timesheet", "time": "14:15", "subject": "feat: single block fallback", "prs": []},
+            {"repo": "timesheet", "time": "16:30", "subject": "fix: test isolation", "prs": []}
+        ]
+        assigned = assign_items_to_blocks([], commits, [])
+        self.assertEqual(len(assigned), 1, "Must produce exactly ONE entry when no calendar events exist")
+        self.assertEqual(len(assigned[0]["commit_subjects"]), 2)
+        self.assertEqual(assigned[0]["source"], "commits_prs")
+
+    def test_assign_items_early_morning_commit(self):
+        """Early morning commit before 09:00 should assign to the first block, not the afternoon block."""
+        blocks = [
+            {"title": "Morning Dev", "start_time": "09:00", "end_time": "12:00", "source": "cal"},
+            {"title": "Afternoon Dev", "start_time": "13:30", "end_time": "18:00", "source": "cal"}
+        ]
+        commits = [
+            {"repo": "timesheet", "time": "08:30", "subject": "feat: early start", "prs": []}
+        ]
+        assigned = assign_items_to_blocks(blocks, commits, [])
+        self.assertIn("feat: early start", assigned[0]["commit_subjects"])
+        self.assertEqual(len(assigned[1]["commit_subjects"]), 0)
+
     def test_format_single_entry_spec_compliance(self):
         entry_md = format_single_entry(
             date="2026-10-06",
@@ -94,30 +120,44 @@ END:VCALENDAR"""
         self.assertIn("- **Source Trace:**", entry_md)
         self.assertIn("Morning Sprint Block", entry_md)
 
+    def test_format_header_clean_truncation(self):
+        long_topic = "This is an extremely long topic summary that describes multiple architectural improvements without running on forever in the markdown heading"
+        entry_md = format_single_entry(
+            date="2026-10-06",
+            start_time="09:00",
+            end_time="12:00",
+            topic_summary=long_topic
+        )
+        first_line = entry_md.splitlines()[0]
+        self.assertTrue(first_line.endswith("..."))
+        # Ensure it didn't cut words awkwardly
+        self.assertNotIn("without...", first_line)
+
     def test_save_deduplication(self):
-        test_entry = {
-            "date": "2026-10-06",
-            "start_time": "09:00",
-            "end_time": "12:00",
-            "topic_summary": "Initial run",
-            "prs": ["#1"],
-            "source_title": "Dev Block",
-            "repos": ["repo1"],
-            "commit_subjects": ["feat: initial"]
-        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_log_path = Path(tmpdir) / "timesheet_test.md"
 
-        save_or_update_block_entry(test_entry)
+            test_entry = {
+                "date": "2026-10-06",
+                "start_time": "09:00",
+                "end_time": "12:00",
+                "topic_summary": "Initial run",
+                "prs": ["#1"],
+                "source_title": "Dev Block",
+                "repos": ["repo1"],
+                "commit_subjects": ["feat: initial"]
+            }
 
-        updated_entry = dict(test_entry)
-        updated_entry["topic_summary"] = "Updated run without duplicates"
-        save_or_update_block_entry(updated_entry)
+            save_or_update_block_entry(test_entry, custom_log_path=test_log_path)
 
-        log_path = get_monthly_log_path("2026-10-06")
-        content = log_path.read_text(encoding="utf-8")
+            updated_entry = dict(test_entry)
+            updated_entry["topic_summary"] = "Updated run without duplicates"
+            save_or_update_block_entry(updated_entry, custom_log_path=test_log_path)
 
-        occurrences = content.count("### 2026-10-06 | 09:00 - 12:00")
-        self.assertEqual(occurrences, 1)
-        self.assertIn("Updated run without duplicates", content)
+            content = test_log_path.read_text(encoding="utf-8")
+            occurrences = content.count("### 2026-10-06 | 09:00 - 12:00")
+            self.assertEqual(occurrences, 1)
+            self.assertIn("Updated run without duplicates", content)
 
 
 if __name__ == "__main__":

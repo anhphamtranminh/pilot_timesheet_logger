@@ -29,8 +29,14 @@ def format_single_entry(
         if "PRs:" not in description:
             description = f"{description} | PRs: {pr_str}"
 
+    first_sentence = topic_summary.split('.')[0].strip()
+    if len(first_sentence) > 65:
+        header_title = first_sentence[:62].rsplit(" ", 1)[0] + "..."
+    else:
+        header_title = first_sentence or "Engineering Work"
+
     lines = [
-        f"### {date} | {start_time} - {end_time} | {topic_summary.split('.')[0][:50]}",
+        f"### {date} | {start_time} - {end_time} | {header_title}",
         "",
         f"- **Date:** {date}",
         f"- **Start time:** {start_time}",
