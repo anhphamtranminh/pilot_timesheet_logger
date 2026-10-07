@@ -53,6 +53,17 @@ def extract_prs_from_git_log(target_date: str) -> list:
     return prs
 
 
+def iso_to_local_date(iso_str: str) -> str:
+    """Convert ISO8601 UTC timestamp to local YYYY-MM-DD."""
+    if not iso_str:
+        return ""
+    try:
+        dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%Y-%m-%d")
+    except Exception:
+        return iso_str[:10]
+
+
 def fetch_prs_from_repos_gh_cli(target_date: str, username: str, repos: list) -> list:
     """Fetch PRs across configured repos using gh pr list (avoids Search API secondary rate limits)."""
     gh_bin = None
@@ -85,7 +96,7 @@ def fetch_prs_from_repos_gh_cli(target_date: str, username: str, repos: list) ->
         cmd = [
             gh_bin, "pr", "list",
             "--state", "all",
-            "--json", "number,title,state,url,author,updatedAt,mergedAt",
+            "--json", "number,title,state,url,author,updatedAt,mergedAt,createdAt",
             "--limit", "30"
         ]
         try:
@@ -97,19 +108,21 @@ def fetch_prs_from_repos_gh_cli(target_date: str, username: str, repos: list) ->
                     if num in seen:
                         continue
 
-                    updated_at = (item.get("updatedAt") or "")[:10]
-                    merged_at = (item.get("mergedAt") or "")[:10]
-                    if updated_at != target_date and merged_at != target_date:
+                    created_date = iso_to_local_date(item.get("createdAt") or "")
+                    updated_date = iso_to_local_date(item.get("updatedAt") or "")
+                    merged_date = iso_to_local_date(item.get("mergedAt") or "")
+
+                    if target_date not in (created_date, updated_date, merged_date):
                         continue
 
                     author_login = item.get("author", {}).get("login", "")
                     raw_state = item.get("state", "OPEN").lower()
 
-                    if raw_state == "merged":
+                    if raw_state == "merged" and merged_date == target_date:
                         status = "merged"
                     elif username and author_login and author_login.lower() != username.lower():
                         status = "reviewed"
-                    elif raw_state == "open":
+                    elif created_date == target_date or raw_state == "open":
                         status = "opened"
                     else:
                         status = raw_state

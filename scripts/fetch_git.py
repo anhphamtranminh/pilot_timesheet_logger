@@ -46,6 +46,7 @@ def fetch_commits_for_repo(repo_path: Path, target_date: str, author_filter: str
         git_bin,
         "-C", str(repo_path),
         "log",
+        "--all",
         f"--since={since_str}",
         f"--until={until_str}",
         "--date=iso",
@@ -64,6 +65,7 @@ def fetch_commits_for_repo(repo_path: Path, target_date: str, author_filter: str
     if repo_name == "." or repo_name == "":
         repo_name = repo_path.resolve().name
 
+    seen_hashes = set()
     for line in lines:
         if not line.strip():
             continue
@@ -71,6 +73,9 @@ def fetch_commits_for_repo(repo_path: Path, target_date: str, author_filter: str
         if len(parts) < 5:
             continue
         commit_hash, author_name, author_email, date_str, subject = parts
+        if commit_hash in seen_hashes:
+            continue
+        seen_hashes.add(commit_hash)
 
         if author_filter:
             author_lower = author_filter.lower()
