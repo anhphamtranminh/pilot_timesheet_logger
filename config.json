@@ -1,0 +1,31 @@
+{
+  "user": {
+    "name": "Anh Pham",
+    "git_author": "Anh Pham",
+    "github_username": "anhphamtranminh"
+  },
+  "repos": [
+    "."
+  ],
+  "calendar": {
+    "provider": "ics",
+    "ics_path_or_url": "https://calendar.google.com/calendar/ical/anh.phamminh%40gradion.com/private-63a60b78886411b8e1b584d3e10efbc5/basic.ics",
+    "default_blocks": [
+      {
+        "title": "Morning Work Block",
+        "start": "09:00",
+        "end": "12:00"
+      },
+      {
+        "title": "Afternoon Work Block",
+        "start": "13:00",
+        "end": "18:00"
+      }
+    ]
+  },
+  "logging": {
+    "log_dir": "logs",
+    "token_file": "logs/token_usage.csv",
+    "improvement_file": "logs/improvement_log.md"
+  }
+}
