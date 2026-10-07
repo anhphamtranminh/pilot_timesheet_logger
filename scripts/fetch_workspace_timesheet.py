@@ -9,6 +9,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -35,14 +36,15 @@ def resolve_gradion_token() -> str:
     if token:
         return token
 
-    # Check macOS Keychain
-    try:
-        cmd = ["security", "find-generic-password", "-ga", "GRADION_API_TOKEN", "-w"]
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
-        if proc.returncode == 0 and proc.stdout.strip():
-            return proc.stdout.strip()
-    except Exception:
-        pass
+    # Check macOS Keychain (-s service name or -ga account name)
+    for flag in ["-s", "-ga"]:
+        try:
+            cmd = ["security", "find-generic-password", flag, "GRADION_API_TOKEN", "-w"]
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+            if proc.returncode == 0 and proc.stdout.strip():
+                return proc.stdout.strip()
+        except Exception:
+            pass
 
     # Check config.json
     try:
@@ -77,6 +79,32 @@ def make_gradion_request(endpoint: str, token: str, method: str = "GET", data: d
         return json.loads(body) if body else {}
 
 
+def parse_mcp_entries_text(text: str, target_date: str) -> list:
+    """Parse text output from list_my_entries MCP tool into structured timesheet blocks."""
+    blocks = []
+    # Format: YYYY-MM-DD HH:MM-HH:MM (XhYm) | Project [Internal Project] | submitted | Description · UUID
+    pattern = re.compile(
+        r"^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})-(\d{2}:\d{2})\s+\([^)]+\)\s+\|\s+([^|]+)\|\s+([^|]+)\|\s*(.+?)(?:\s*·\s*([a-f0-9-]+))?$",
+        re.MULTILINE
+    )
+    for m in pattern.finditer(text):
+        row_date, st, et, proj, status, desc, entry_id = m.groups()
+        if row_date == target_date:
+            clean_title = re.sub(r"\s*\|\s*#[A-Za-z0-9_-]+", "", desc).strip()
+            clean_title = re.sub(r"\s*\|\s*PRs:.*", "", clean_title).strip()
+            blocks.append({
+                "title": clean_title,
+                "start_time": st,
+                "end_time": et,
+                "project": proj.strip(),
+                "status": status.strip(),
+                "source": "workspace_timesheet",
+                "entry_id": entry_id or ""
+            })
+    blocks.sort(key=lambda x: x["start_time"])
+    return blocks
+
+
 def fetch_workspace_timesheet_blocks(target_date: str) -> list:
     """Fetch timesheet blocks from Gradion Workspace API for a given target_date."""
     token = resolve_gradion_token()
@@ -88,65 +116,52 @@ def fetch_workspace_timesheet_blocks(target_date: str) -> list:
         # Step 1: Bootstrap caller & workspace info
         me = make_gradion_request("/api/auth/me", token)
         workspace_id = me.get("workspace_id")
-        user_id = me.get("id")
 
         if not workspace_id:
             print("[WARN] Gradion Workspace API: No workspace_id returned in /api/auth/me", file=sys.stderr)
             return []
 
-        # Step 2: Query export catalog to see available timesheet datasets
-        export_cat = make_gradion_request("/api/me/apps/export", token)
-        apps = export_cat.get("apps", [])
-
         timesheet_blocks = []
 
-        # Check if timesheet app is present in export catalog
-        has_timesheet_export = any(app.get("slug") == "timesheet" for app in apps)
-        if has_timesheet_export:
-            # Query export entries
-            entries_data = make_gradion_request("/api/me/apps/timesheet/export/entries?limit=500", token)
-            rows = entries_data.get("rows", [])
-            for row in rows:
-                # Expected fields: date, start_time, end_time, project, task, description
-                row_date = row.get("date") or row.get("day")
-                if row_date == target_date:
-                    title = row.get("task") or row.get("project") or row.get("description") or "Workspace Task"
-                    timesheet_blocks.append({
-                        "title": title,
-                        "start_time": row.get("start_time", "09:00"),
-                        "end_time": row.get("end_time", "18:00"),
-                        "source": "workspace_timesheet",
-                        "raw_entry": row
-                    })
+        # Step 2: Query MCP catalog for timesheet app tools
+        mcp_cat = make_gradion_request("/api/me/apps/mcp", token)
+        mcp_apps = mcp_cat.get("apps", [])
+        for app in mcp_apps:
+            if app.get("slug") == "timesheet":
+                tools = [t.get("name") for t in app.get("tools", [])]
+                if "list_my_entries" in tools:
+                    result = make_gradion_request(
+                        "/api/me/apps/timesheet/tools/list_my_entries/call",
+                        token,
+                        method="POST",
+                        data={"arguments": {"dateFrom": target_date, "dateTo": target_date, "limit": 50}}
+                    )
+                    content_list = result.get("content", [])
+                    for item in content_list:
+                        if item.get("type") == "text":
+                            parsed = parse_mcp_entries_text(item.get("text", ""), target_date)
+                            timesheet_blocks.extend(parsed)
+                break
 
-        # Step 3: If no export entries found, check MCP catalog for tools
+        # Step 3: Fallback to bulk export catalog if no entries from MCP
         if not timesheet_blocks:
-            mcp_cat = make_gradion_request("/api/me/apps/mcp", token)
-            mcp_apps = mcp_cat.get("apps", [])
-            for app in mcp_apps:
-                if app.get("slug") == "timesheet":
-                    tools = [t.get("name") for t in app.get("tools", [])]
-                    # Check for read tools like get_entries, list_entries, get_blocks
-                    for read_tool in ["get_entries", "list_entries", "get_blocks"]:
-                        if read_tool in tools:
-                            result = make_gradion_request(
-                                f"/api/me/apps/timesheet/tools/{read_tool}/call",
-                                token,
-                                method="POST",
-                                data={"arguments": {"date": target_date}}
-                            )
-                            # Parse structuredContent or content
-                            if result.get("structuredContent"):
-                                sc = result["structuredContent"]
-                                entries = sc if isinstance(sc, list) else sc.get("entries", [])
-                                for e in entries:
-                                    timesheet_blocks.append({
-                                        "title": e.get("title") or e.get("project") or "Workspace Task",
-                                        "start_time": e.get("start_time", "09:00"),
-                                        "end_time": e.get("end_time", "18:00"),
-                                        "source": "workspace_timesheet"
-                                    })
-                            break
+            export_cat = make_gradion_request("/api/me/apps/export", token)
+            apps = export_cat.get("apps", [])
+            has_timesheet_export = any(app.get("slug") == "timesheet" for app in apps)
+            if has_timesheet_export:
+                entries_data = make_gradion_request("/api/me/apps/timesheet/export/entries?limit=500", token)
+                rows = entries_data.get("rows", [])
+                for row in rows:
+                    row_date = row.get("date") or row.get("day")
+                    if row_date == target_date:
+                        title = row.get("task") or row.get("project") or row.get("description") or "Workspace Task"
+                        timesheet_blocks.append({
+                            "title": title,
+                            "start_time": row.get("start_time", "09:00"),
+                            "end_time": row.get("end_time", "18:00"),
+                            "source": "workspace_timesheet",
+                            "raw_entry": row
+                        })
 
         timesheet_blocks.sort(key=lambda x: x.get("start_time", "00:00"))
         return timesheet_blocks
@@ -167,49 +182,48 @@ def fetch_workspace_timesheet_blocks(target_date: str) -> list:
 
 
 def post_workspace_timesheet_entry(entry: dict) -> bool:
-    """Post or sync a timesheet entry to Gradion Workspace Timesheet app.
-
-    Requires PAT with write scope for the timesheet app.
-    Uses MCP tools/call on /api/me/apps/timesheet/tools/{create_entry|log_entry|add_entry}/call.
-    """
+    """Post or sync a timesheet entry to Gradion Workspace Timesheet app via log_time MCP tool."""
     token = resolve_gradion_token()
     if not token:
         return False
 
+    cfg = load_config()
+    classification = (
+        entry.get("classification")
+        or cfg.get("workspace", {}).get("default_classification")
+        or "Gradion Intern Academy 2026"
+    )
+    task = entry.get("task") or cfg.get("workspace", {}).get("default_task") or "#SE"
+
+    desc = entry.get("topic_summary") or entry.get("description", "Daily Development")
+    prs = entry.get("prs", [])
+    if prs:
+        desc += f" | PRs: {', '.join(prs)}"
+
     try:
-        mcp_cat = make_gradion_request("/api/me/apps/mcp", token)
-        apps = mcp_cat.get("apps", [])
-        write_tool = None
-        for app in apps:
-            if app.get("slug") == "timesheet":
-                tools = [t.get("name") for t in app.get("tools", [])]
-                for candidate in ["create_entry", "log_entry", "add_entry", "record_time"]:
-                    if candidate in tools:
-                        write_tool = candidate
-                        break
-                break
-
-        if not write_tool:
-            print("[INFO] No timesheet write tool found in Gradion Workspace MCP catalog.", file=sys.stderr)
-            return False
-
         payload = {
             "arguments": {
                 "date": entry.get("date"),
-                "start_time": entry.get("start_time"),
-                "end_time": entry.get("end_time"),
-                "description": entry.get("topic_summary"),
-                "prs": entry.get("prs", []),
-                "repos": entry.get("repos", [])
+                "startTime": entry.get("start_time"),
+                "endTime": entry.get("end_time"),
+                "description": desc,
+                "classification": classification,
+                "task": task,
+                "billable": False
             }
         }
         res = make_gradion_request(
-            f"/api/me/apps/timesheet/tools/{write_tool}/call",
+            "/api/me/apps/timesheet/tools/log_time/call",
             token,
             method="POST",
             data=payload
         )
-        print(f"[OK] Synced timesheet entry to Gradion Workspace ({write_tool})")
+        if res.get("isError"):
+            err_msg = res.get("content", [{}])[0].get("text", "Unknown error")
+            print(f"[WARN] Failed to log time to Gradion Workspace: {err_msg}", file=sys.stderr)
+            return False
+
+        print(f"[OK] Successfully logged time to Gradion Workspace ({entry.get('start_time')} - {entry.get('end_time')})")
         return True
     except Exception as e:
         print(f"[WARN] Failed to sync timesheet entry to Gradion Workspace: {e}", file=sys.stderr)

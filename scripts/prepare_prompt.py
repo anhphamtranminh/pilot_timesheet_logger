@@ -65,6 +65,27 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
             "prs": set(),
             "repos": set()
         })
+    elif commits:
+        # If there are commits occurring significantly after the last scheduled block, add a trailing development block
+        last_block_end = time_to_minutes(structured_blocks[-1]["end_time"])
+        late_commits = [c for c in commits if time_to_minutes(c.get("time", "12:00")) > last_block_end + 30]
+        if late_commits:
+            max_c_time = max(time_to_minutes(c.get("time", "12:00")) for c in late_commits)
+            end_minutes = max(time_to_minutes("18:00"), max_c_time + 15)
+            end_hh = end_minutes // 60
+            end_mm = end_minutes % 60
+            end_time_str = f"{end_hh:02d}:{end_mm:02d}"
+
+            structured_blocks.append({
+                "block_id": len(structured_blocks) + 1,
+                "title": "Afternoon Development",
+                "start_time": structured_blocks[-1]["end_time"],
+                "end_time": end_time_str,
+                "source": "commits_prs",
+                "commits": [],
+                "prs": set(),
+                "repos": set()
+            })
 
     for c in commits:
         c_time = time_to_minutes(c.get("time", "12:00"))
@@ -139,13 +160,22 @@ def generate_ai_payload(target_date: str) -> dict:
 
     blocks = assign_items_to_blocks(events, commits, prs)
 
-    raw_str = json.dumps(blocks)
+    # Minimal payload passed to LLM for topic synthesis
+    ai_view = []
+    for b in blocks:
+        item = {"id": b["block_id"], "title": b["title"]}
+        if b.get("commit_subjects"):
+            item["commits"] = b["commit_subjects"]
+        ai_view.append(item)
+
+    raw_str = json.dumps(ai_view, separators=(",", ":"))
     estimated_tokens = max(1, len(raw_str) // 4)
 
     return {
         "date": target_date,
         "estimated_input_tokens": estimated_tokens,
-        "blocks": blocks
+        "blocks": blocks,
+        "ai_input": ai_view
     }
 
 

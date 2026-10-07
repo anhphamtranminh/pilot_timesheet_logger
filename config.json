@@ -9,7 +9,8 @@
   ],
   "workspace": {
     "base_url": "https://workspace.gradion.com",
-    "api_token": ""
+    "default_classification": "Gradion Intern Academy 2026",
+    "default_task": "#SE"
   },
   "calendar": {
     "provider": "ics",
