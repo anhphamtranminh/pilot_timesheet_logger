@@ -15,6 +15,7 @@ from fetch_workspace_timesheet import (
     resolve_gradion_token,
     make_gradion_request,
     fetch_workspace_timesheet_blocks,
+    post_workspace_timesheet_entry,
 )
 from fetch_calendar import fetch_all_events
 
@@ -94,6 +95,36 @@ class TestWorkspaceTimesheet(unittest.TestCase):
         self.assertEqual(blocks[1]["start_time"], "13:30")
         self.assertEqual(blocks[1]["end_time"], "18:00")
         self.assertEqual(blocks[1]["title"], "Antigravity & Claude Skill Testing")
+
+    @patch("fetch_workspace_timesheet.resolve_gradion_token", return_value="pat_test_mock")
+    @patch("fetch_workspace_timesheet.make_gradion_request")
+    def test_post_workspace_timesheet_entry_success(self, mock_request, mock_token):
+        """Verify posting timesheet entry through installed timesheet app MCP write tool."""
+        def mock_api(endpoint, token, method="GET", data=None):
+            if endpoint == "/api/me/apps/mcp":
+                return {
+                    "apps": [
+                        {
+                            "slug": "timesheet",
+                            "tools": [{"name": "create_entry"}]
+                        }
+                    ]
+                }
+            elif endpoint == "/api/me/apps/timesheet/tools/create_entry/call":
+                return {"content": [{"type": "text", "text": "Entry created successfully"}]}
+            return {}
+
+        mock_request.side_effect = mock_api
+        entry = {
+            "date": "2026-10-07",
+            "start_time": "09:00",
+            "end_time": "12:00",
+            "topic_summary": "Test topic summary",
+            "prs": ["#1"],
+            "repos": ["pilot_timesheet"]
+        }
+        success = post_workspace_timesheet_entry(entry)
+        self.assertTrue(success)
 
     @patch("fetch_workspace_timesheet.resolve_gradion_token", return_value="pat_test_mock")
     @patch("fetch_workspace_timesheet.make_gradion_request")
