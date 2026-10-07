@@ -26,7 +26,7 @@ def time_to_minutes(time_str: str) -> int:
 
 
 def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
-    """Assign commits and PRs to the time blocks based on timestamps."""
+    """Assign commits and PRs to the time blocks based on timestamps and block metadata."""
     structured_blocks = []
 
     for i, b in enumerate(blocks):
@@ -36,6 +36,9 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
             "start_time": b.get("start_time", "09:00"),
             "end_time": b.get("end_time", "12:00"),
             "source": b.get("source", "calendar"),
+            "entry_id": b.get("entry_id", ""),
+            "project": b.get("project", ""),
+            "status": b.get("status", ""),
             "commits": [],
             "prs": set(),
             "repos": set()
@@ -61,6 +64,9 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
             "start_time": start_time,
             "end_time": end_time,
             "source": "commits_prs",
+            "entry_id": "",
+            "project": "",
+            "status": "",
             "commits": [],
             "prs": set(),
             "repos": set()
@@ -82,37 +88,80 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
                 "start_time": structured_blocks[-1]["end_time"],
                 "end_time": end_time_str,
                 "source": "commits_prs",
+                "entry_id": "",
+                "project": "",
+                "status": "",
                 "commits": [],
                 "prs": set(),
                 "repos": set()
             })
 
+    MEETING_KEYWORDS = ["meeting", "standup", "sync", "1:1", "catch-up", "q&a", "demo", "retro", "interview", "lunch"]
+
+    def is_meeting_block(b: dict) -> bool:
+        title_lower = b.get("title", "").lower()
+        return any(k in title_lower for k in MEETING_KEYWORDS)
+
     for c in commits:
         c_time = time_to_minutes(c.get("time", "12:00"))
+        c_repo = c.get("repo", "")
+        c_subj = c.get("subject", "").lower()
         matched_block = None
 
-        # Check if commit falls within a block
+        # Check candidate blocks that overlap this commit time
+        candidates = []
         for b in structured_blocks:
             b_start = time_to_minutes(b["start_time"])
             b_end = time_to_minutes(b["end_time"])
             if b_start <= c_time <= b_end:
-                matched_block = b
-                break
+                candidates.append(b)
 
-        # If not within any block, assign to earliest, latest, or nearest block
-        if not matched_block:
-            first_start = time_to_minutes(structured_blocks[0]["start_time"])
-            last_end = time_to_minutes(structured_blocks[-1]["end_time"])
-            if c_time <= first_start:
-                matched_block = structured_blocks[0]
-            elif c_time >= last_end:
-                matched_block = structured_blocks[-1]
+        if len(candidates) == 1:
+            matched_block = candidates[0]
+        elif len(candidates) > 1:
+            # Overlapping candidate blocks!
+            # 1. Prefer non-meeting blocks over meetings
+            non_meetings = [b for b in candidates if not is_meeting_block(b)]
+            pool = non_meetings if non_meetings else candidates
+
+            # 2. Prefer blocks matching commit repo or keywords
+            keyword_matches = [
+                b for b in pool
+                if (c_repo and c_repo.lower() in b.get("title", "").lower())
+                or any(w in b.get("title", "").lower() for w in c_subj.split() if len(w) > 4)
+            ]
+            if keyword_matches:
+                pool = keyword_matches
+
+            # 3. Prefer empty blocks (0 commits) so they get populated with work
+            empty_blocks = [b for b in pool if not b["commits"]]
+            if empty_blocks:
+                matched_block = empty_blocks[0]
             else:
-                def block_dist(b):
-                    b_s = time_to_minutes(b["start_time"])
-                    b_e = time_to_minutes(b["end_time"])
-                    return min(abs(c_time - b_s), abs(c_time - b_e))
-                matched_block = min(structured_blocks, key=block_dist)
+                # 4. Prefer shorter/tighter duration block
+                def block_len(b):
+                    return time_to_minutes(b["end_time"]) - time_to_minutes(b["start_time"])
+                matched_block = min(pool, key=block_len)
+
+        # If not within any block, assign to nearest block
+        if not matched_block:
+            non_meetings = [b for b in structured_blocks if not is_meeting_block(b)]
+            search_pool = non_meetings if non_meetings else structured_blocks
+
+            def block_dist(b):
+                b_s = time_to_minutes(b["start_time"])
+                b_e = time_to_minutes(b["end_time"])
+                dist = 0
+                if c_time < b_s:
+                    dist = b_s - c_time
+                elif c_time > b_e:
+                    dist = c_time - b_e
+                # Slight preference if block is currently empty
+                if not b.get("commits"):
+                    dist = max(0, dist - 15)
+                return dist
+
+            matched_block = min(search_pool, key=block_dist)
 
         matched_block["commits"].append(c["subject"])
         matched_block["repos"].add(c["repo"])
@@ -123,22 +172,62 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
         num = p["number"]
         already_attached = any(num in b["prs"] for b in structured_blocks)
         if not already_attached:
+            p_time_str = p.get("time", "")
+            p_time = time_to_minutes(p_time_str) if p_time_str else None
             p_repo = p.get("repo", "")
+            p_title = p.get("title", "").lower()
             target_b = None
-            if p_repo:
+
+            # 1. Match by PR timestamp if within a block
+            if p_time is not None and p_time > 0:
+                candidates = []
                 for b in structured_blocks:
-                    if p_repo in b["repos"]:
+                    b_start = time_to_minutes(b["start_time"])
+                    b_end = time_to_minutes(b["end_time"])
+                    if b_start <= p_time <= b_end:
+                        candidates.append(b)
+                if candidates:
+                    def cand_score(b):
+                        score = 0
+                        if p_repo and p_repo in b.get("repos", set()):
+                            score += 10
+                        if not b.get("prs"):
+                            score += 5
+                        if not is_meeting_block(b):
+                            score += 3
+                        return score
+                    target_b = max(candidates, key=cand_score)
+
+            # 2. Match by title / PR number appearing in block title
+            if not target_b:
+                for b in structured_blocks:
+                    b_title = b.get("title", "").lower()
+                    if num.lower() in b_title or (p_title and any(w in b_title for w in p_title.split() if len(w) > 4)):
                         target_b = b
                         break
+
+            # 3. Match by repo, preferring blocks that have 0 PRs or are empty
+            if not target_b and p_repo:
+                matching_blocks = [b for b in structured_blocks if p_repo in b["repos"]]
+                if matching_blocks:
+                    target_b = next((b for b in matching_blocks if not b["prs"]), matching_blocks[0])
+
+            # 4. Fallback: prefer an empty block or first non-meeting block
             if not target_b:
-                target_b = structured_blocks[0]
+                empty_cand = next((b for b in structured_blocks if not b["commits"] and not b["prs"] and not is_meeting_block(b)), None)
+                if empty_cand:
+                    target_b = empty_cand
+                else:
+                    non_meeting_first = next((b for b in structured_blocks if not is_meeting_block(b)), structured_blocks[0])
+                    target_b = non_meeting_first
+
             target_b["prs"].add(num)
             if p_repo:
                 target_b["repos"].add(p_repo)
 
     result = []
     for b in structured_blocks:
-        result.append({
+        item = {
             "block_id": b["block_id"],
             "title": b["title"],
             "start_time": b["start_time"],
@@ -147,7 +236,14 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
             "repos": sorted(list(b["repos"])),
             "prs": sorted(list(b["prs"])),
             "commit_subjects": b["commits"]
-        })
+        }
+        if b.get("entry_id"):
+            item["entry_id"] = b["entry_id"]
+        if b.get("project"):
+            item["project"] = b["project"]
+        if b.get("status"):
+            item["status"] = b["status"]
+        result.append(item)
 
     return result
 

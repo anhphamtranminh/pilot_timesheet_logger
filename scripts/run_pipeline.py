@@ -70,6 +70,10 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
             "repos": b.get("repos", []),
             "commit_subjects": commits
         }
+        if b.get("entry_id"):
+            entry_dict["entry_id"] = b["entry_id"]
+        if b.get("project"):
+            entry_dict["project"] = b["project"]
 
         formatted_entries.append(entry_dict)
 

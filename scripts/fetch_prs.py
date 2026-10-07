@@ -64,6 +64,17 @@ def iso_to_local_date(iso_str: str) -> str:
         return iso_str[:10]
 
 
+def iso_to_local_time(iso_str: str) -> str:
+    """Convert ISO8601 UTC timestamp to local HH:MM."""
+    if not iso_str:
+        return ""
+    try:
+        dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%H:%M")
+    except Exception:
+        return ""
+
+
 def fetch_prs_from_repos_gh_cli(target_date: str, username: str, repos: list) -> list:
     """Fetch PRs across configured repos using gh pr list (avoids Search API secondary rate limits)."""
     gh_bin = None
@@ -127,13 +138,22 @@ def fetch_prs_from_repos_gh_cli(target_date: str, username: str, repos: list) ->
                     else:
                         status = raw_state
 
+                    action_time = ""
+                    if merged_date == target_date and item.get("mergedAt"):
+                        action_time = iso_to_local_time(item.get("mergedAt"))
+                    elif created_date == target_date and item.get("createdAt"):
+                        action_time = iso_to_local_time(item.get("createdAt"))
+                    elif updated_date == target_date and item.get("updatedAt"):
+                        action_time = iso_to_local_time(item.get("updatedAt"))
+
                     seen.add(num)
                     prs.append({
                         "number": num,
                         "title": item.get("title", ""),
                         "repo": repo_name,
                         "status": status,
-                        "url": item.get("url", "")
+                        "url": item.get("url", ""),
+                        "time": action_time
                     })
         except Exception:
             continue
