@@ -7,6 +7,10 @@
   "repos": [
     "."
   ],
+  "workspace": {
+    "base_url": "https://workspace.gradion.com",
+    "api_token": ""
+  },
   "calendar": {
     "provider": "ics",
     "ics_path_or_url": "",

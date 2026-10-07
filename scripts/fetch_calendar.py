@@ -117,15 +117,27 @@ def fetch_events_from_source(source: str, target_date: str) -> list:
 
 
 def fetch_all_events(target_date: str, include_defaults: bool = False) -> list:
-    """Fetch calendar events from configured source or local .ics."""
+    """Fetch calendar events / time blocks from Gradion Workspace, iCal, or local .ics."""
+    events = []
+
+    # 1. First priority: Check Gradion Workspace Timesheet app
+    try:
+        from fetch_workspace_timesheet import fetch_workspace_timesheet_blocks
+        ws_blocks = fetch_workspace_timesheet_blocks(target_date)
+        if ws_blocks:
+            return ws_blocks
+    except Exception as e:
+        pass
+
+    # 2. Second priority: Configured iCal feed or URL
     config = load_config()
     cal_cfg = config.get("calendar", {})
     ics_source = cal_cfg.get("ics_path_or_url", "")
 
-    events = []
     if ics_source:
         events = fetch_events_from_source(ics_source, target_date)
 
+    # 3. Third priority: Local calendar.ics
     if not events:
         local_ics = find_project_root() / "calendar.ics"
         if local_ics.exists():

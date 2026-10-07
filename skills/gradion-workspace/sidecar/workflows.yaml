@@ -1,0 +1,13 @@
+workflows:
+  - name: Inbox Triage
+    id: inbox-triage
+    description: Convert a noisy inbox into a "Needs reply" + "Worth a look" digest
+    details: |
+      Groups conversations by thread/channel, detects unanswered items, classifies priority via LLM.
+      Perfect for catching up on what you missed without getting overwhelmed by ambient noise.
+    sidecar: sidecar/inbox-triage.md
+    applies_to:
+      - "What did I miss?"
+      - "Triage my inbox"
+      - "What needs my reply?"
+      - "Catch me up"
