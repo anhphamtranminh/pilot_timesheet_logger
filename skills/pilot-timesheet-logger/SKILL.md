@@ -7,8 +7,9 @@ description: Generates and records daily internship timesheet entries from git c
 
 A Claude Code skill for generating and maintaining daily personal timesheet entries from real data sources: Git commits, Pull Requests, and Google Calendar events.
 
-## When Claude Should Use This Skill
-Activate this skill whenever the user says:
+## When Claude / Antigravity Should Use This Skill
+Activate this skill whenever the user says or types:
+- `log` or `/log` or `/timesheet`
 - *"log today's work"* or *"log my work for today"*
 - *"record my timesheet"* or *"fill my timesheet"*
 - *"generate daily log"* or *"run timesheet logger"*

@@ -28,9 +28,16 @@ class TestSkillPackaging(unittest.TestCase):
         self.assertTrue(skill_md.is_file(), "SKILL.md must exist in skill folder")
         self.assertTrue(workflow_md.is_file(), "workflow.md must exist in skill folder")
 
-        # Also check .claude/skills mirroring
+        # Also check .claude/skills and .agents/skills mirroring
         claude_skill_dir = PROJECT_ROOT / ".claude" / "skills" / "pilot-timesheet-logger"
         self.assertTrue(claude_skill_dir.is_dir(), ".claude/skills/pilot-timesheet-logger must exist")
+
+        agents_skill_dir = PROJECT_ROOT / ".agents" / "skills" / "pilot-timesheet-logger"
+        self.assertTrue(agents_skill_dir.is_dir(), ".agents/skills/pilot-timesheet-logger must exist")
+
+        agents_md = PROJECT_ROOT / "AGENTS.md"
+        self.assertTrue(agents_md.is_file(), "AGENTS.md must exist in root")
+        self.assertIn("log", agents_md.read_text(encoding="utf-8"))
 
     def test_skill_md_yaml_frontmatter(self):
         """Verify SKILL.md has valid YAML frontmatter with name and description."""
