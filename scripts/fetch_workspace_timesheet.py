@@ -19,6 +19,7 @@ from pathlib import Path
 # Add parent directory to sys.path to import config
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import find_project_root, load_config
+from format_entry import build_bullet_description
 
 GRADION_BASE_URL = "https://workspace.gradion.com"
 SKILL_BUNDLE_VERSION = "1.9.0"
@@ -83,19 +84,24 @@ def parse_mcp_entries_text(text: str, target_date: str) -> list:
     """Parse text output from list_my_entries MCP tool into structured timesheet blocks."""
     blocks = []
     # Format: YYYY-MM-DD HH:MM-HH:MM (XhYm) | Project [Internal Project] | submitted | Description · UUID
+    # Uses re.DOTALL to match multiline descriptions until the next entry header or EOF
     pattern = re.compile(
-        r"^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})-(\d{2}:\d{2})\s+\([^)]+\)\s+\|\s+([^|]+)\|\s+([^|]+)\|\s*(.+?)(?:\s*·\s*([a-f0-9-]+))?$",
-        re.MULTILINE
+        r"(?:^|\n)(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})-(\d{2}:\d{2})\s+\([^)]+\)\s+\|\s+([^|]+)\|\s+([^|]+)\|\s*(.+?)(?:\s*·\s*([a-f0-9-]+))?(?=\n\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}-\d{2}:\d{2}|$)",
+        re.DOTALL
     )
     for m in pattern.finditer(text):
         row_date, st, et, proj, status, desc, entry_id = m.groups()
         if row_date == target_date:
             clean_title = re.sub(r"\s*\|\s*#[A-Za-z0-9_-]+", "", desc).strip()
-            clean_title = re.sub(r"\s*\|\s*Commits:.*", "", clean_title).strip()
+            clean_title = re.sub(r"\s*\|\s*Commits:.*", "", clean_title, flags=re.DOTALL).strip()
             clean_title = re.sub(r"\s*\|\s*PRs:.*", "", clean_title).strip()
-            clean_title = re.sub(r"^PRs:.*?\|\s*", "", clean_title).strip()
-            parts = [p.strip() for p in clean_title.split("|") if p.strip()]
-            clean_title = " | ".join(dict.fromkeys(parts))
+            clean_title = re.sub(r"^PRs:\s*[^|]+\|\s*", "", clean_title).strip()
+            lines = [re.sub(r"^[-*•]\s*", "", l).strip() for l in clean_title.splitlines() if l.strip()]
+            lines = [l for l in lines if not l.startswith("PRs:") and not l.startswith("#")]
+            if lines:
+                clean_title = " | ".join(lines)
+            else:
+                clean_title = "Work Block"
             blocks.append({
                 "title": clean_title,
                 "start_time": st,
@@ -246,12 +252,9 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
     desc = entry.get("topic_summary") or entry.get("description", "Daily Development")
     commits = entry.get("commit_subjects", [])
     prs = entry.get("prs", [])
-    if prs and not desc.startswith("PRs:"):
-        if " | PRs:" in desc:
-            desc = desc.split(" | PRs:")[0].strip()
-        desc = f"PRs: {', '.join(prs)} | {desc}" if desc else f"PRs: {', '.join(prs)}"
-    if commits and "Commits:" not in desc:
-        desc += f" | Commits: {'; '.join(commits)}"
+    bullets = build_bullet_description(desc, prs, commits=commits)
+    if bullets:
+        desc = "\n".join(f"- {b}" for b in bullets)
 
     start_time = entry.get("start_time", "09:00")
     end_time = entry.get("end_time", "12:00")

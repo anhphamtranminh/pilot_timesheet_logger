@@ -116,7 +116,9 @@ END:VCALENDAR"""
         self.assertIn("- **Date:** 2026-10-06", entry_md)
         self.assertIn("- **Start time:** 09:00", entry_md)
         self.assertIn("- **End time:** 12:00", entry_md)
-        self.assertIn("- **Description:** PRs: #101, #102 | Timesheet pipeline scaffolding and calendar integration", entry_md)
+        self.assertIn("- **Description:**", entry_md)
+        self.assertIn("  - PRs: #101, #102", entry_md)
+        self.assertIn("  - Timesheet pipeline scaffolding and calendar integration", entry_md)
         self.assertIn("- **Source Trace:**", entry_md)
         self.assertIn("Morning Sprint Block", entry_md)
 
