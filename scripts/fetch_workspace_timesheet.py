@@ -91,6 +91,7 @@ def parse_mcp_entries_text(text: str, target_date: str) -> list:
         row_date, st, et, proj, status, desc, entry_id = m.groups()
         if row_date == target_date:
             clean_title = re.sub(r"\s*\|\s*#[A-Za-z0-9_-]+", "", desc).strip()
+            clean_title = re.sub(r"\s*\|\s*Commits:.*", "", clean_title).strip()
             clean_title = re.sub(r"\s*\|\s*PRs:.*", "", clean_title).strip()
             blocks.append({
                 "title": clean_title,
@@ -181,8 +182,52 @@ def fetch_workspace_timesheet_blocks(target_date: str) -> list:
         return []
 
 
+def edit_workspace_timesheet_entry(
+    entry_id: str,
+    desc: str,
+    reason: str = "Automated sync of topic, commits, and PRs",
+    task: str = None,
+    start_time: str = None,
+    end_time: str = None
+) -> bool:
+    """Update an existing timesheet entry in Gradion Workspace via edit_time MCP tool."""
+    token = resolve_gradion_token()
+    if not token or not entry_id:
+        return False
+
+    try:
+        args = {
+            "entryId": entry_id,
+            "reason": reason[:200],
+            "description": desc[:3000]
+        }
+        if task:
+            args["task"] = task[:150]
+        if start_time:
+            args["startTime"] = start_time
+        if end_time:
+            args["endTime"] = end_time
+
+        res = make_gradion_request(
+            "/api/me/apps/timesheet/tools/edit_time/call",
+            token,
+            method="POST",
+            data={"arguments": args}
+        )
+        if res.get("isError"):
+            err_msg = res.get("content", [{}])[0].get("text", "Unknown error")
+            print(f"[WARN] Failed to edit entry in Gradion Workspace ({entry_id[:8]}...): {err_msg}", file=sys.stderr)
+            return False
+
+        print(f"[OK] Successfully updated existing entry in Gradion Workspace ({entry_id[:8]}...)")
+        return True
+    except Exception as e:
+        print(f"[WARN] Failed to edit timesheet entry in Gradion Workspace: {e}", file=sys.stderr)
+        return False
+
+
 def post_workspace_timesheet_entry(entry: dict) -> bool:
-    """Post or sync a timesheet entry to Gradion Workspace Timesheet app via log_time MCP tool."""
+    """Post or sync a timesheet entry to Gradion Workspace Timesheet app via log_time or edit_time MCP tools."""
     token = resolve_gradion_token()
     if not token:
         return False
@@ -196,16 +241,35 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
     task = entry.get("task") or cfg.get("workspace", {}).get("default_task") or "#SE"
 
     desc = entry.get("topic_summary") or entry.get("description", "Daily Development")
+    commits = entry.get("commit_subjects", [])
     prs = entry.get("prs", [])
-    if prs:
+    if commits and "Commits:" not in desc:
+        desc += f" | Commits: {'; '.join(commits)}"
+    if prs and "PRs:" not in desc:
         desc += f" | PRs: {', '.join(prs)}"
+
+    start_time = entry.get("start_time", "09:00")
+    end_time = entry.get("end_time", "12:00")
+    date_str = entry.get("date", datetime.date.today().isoformat())
+
+    # If entry_id is explicitly provided, update existing entry via edit_time
+    entry_id = entry.get("entry_id")
+    if entry_id:
+        return edit_workspace_timesheet_entry(
+            entry_id=entry_id,
+            desc=desc,
+            reason="Update timesheet block with commits and PRs",
+            task=task,
+            start_time=start_time,
+            end_time=end_time
+        )
 
     try:
         payload = {
             "arguments": {
-                "date": entry.get("date"),
-                "startTime": entry.get("start_time"),
-                "endTime": entry.get("end_time"),
+                "date": date_str,
+                "startTime": start_time,
+                "endTime": end_time,
                 "description": desc,
                 "classification": classification,
                 "task": task,
@@ -220,10 +284,44 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
         )
         if res.get("isError"):
             err_msg = res.get("content", [{}])[0].get("text", "Unknown error")
+
+            # If error is due to overlapping entry, find existing overlapping entry and edit it
+            if "overlap" in err_msg.lower():
+                print(f"[INFO] Overlapping entry detected in Gradion Workspace for {start_time} - {end_time}. Resolving entry ID for edit_time...", file=sys.stderr)
+                existing_blocks = fetch_workspace_timesheet_blocks(date_str)
+
+                def to_min(t_str):
+                    parts = t_str.split(":")
+                    return int(parts[0]) * 60 + int(parts[1]) if len(parts) >= 2 else 0
+
+                s_min = to_min(start_time)
+                e_min = to_min(end_time)
+                candidates = []
+                for eb in existing_blocks:
+                    if not eb.get("entry_id"):
+                        continue
+                    eb_s = to_min(eb.get("start_time", "09:00"))
+                    eb_e = to_min(eb.get("end_time", "18:00"))
+                    overlap = min(e_min, eb_e) - max(s_min, eb_s)
+                    if overlap > 0:
+                        candidates.append((overlap, eb))
+
+                if candidates:
+                    # Choose entry with greatest overlap
+                    best_overlap, best_eb = max(candidates, key=lambda c: c[0])
+                    return edit_workspace_timesheet_entry(
+                        entry_id=best_eb["entry_id"],
+                        desc=desc,
+                        reason="Update overlapping block with commits and PRs",
+                        task=task,
+                        start_time=start_time,
+                        end_time=end_time
+                    )
+
             print(f"[WARN] Failed to log time to Gradion Workspace: {err_msg}", file=sys.stderr)
             return False
 
-        print(f"[OK] Successfully logged time to Gradion Workspace ({entry.get('start_time')} - {entry.get('end_time')})")
+        print(f"[OK] Successfully logged time to Gradion Workspace ({start_time} - {end_time})")
         return True
     except Exception as e:
         print(f"[WARN] Failed to sync timesheet entry to Gradion Workspace: {e}", file=sys.stderr)

@@ -66,22 +66,61 @@ def save_or_update_block_entry(entry_dict: dict, custom_log_path: Path = None) -
         commit_subjects=entry_dict.get("commit_subjects", [])
     )
 
-    pattern = re.compile(
+    # 1. Exact match on date, start_time, end_time
+    exact_pattern = re.compile(
         rf"(### {re.escape(date_str)} \| {re.escape(start_time)} - {re.escape(end_time)} \|[^\n]*\n(?:(?!\n### ).)*)",
         re.DOTALL
     )
 
-    if pattern.search(content):
-        updated_content = pattern.sub(entry_md.strip(), content)
+    if exact_pattern.search(content):
+        updated_content = exact_pattern.sub(entry_md.strip(), content)
         log_path.write_text(updated_content, encoding="utf-8")
         print(f"[OK] Updated existing entry for {date_str} ({start_time} - {end_time}) in {log_path.name}")
-    else:
-        if not content.endswith("\n\n"):
-            content += "\n"
-        content += entry_md.strip() + "\n\n"
-        log_path.write_text(content, encoding="utf-8")
-        print(f"[OK] Appended new entry for {date_str} ({start_time} - {end_time}) in {log_path.name}")
+        return True
 
+    # 2. Check for overlapping entries for the same date
+    def to_min(t_str):
+        parts = t_str.split(":")
+        return int(parts[0]) * 60 + int(parts[1]) if len(parts) >= 2 else 0
+
+    s_min = to_min(start_time)
+    e_min = to_min(end_time)
+    current_dur = e_min - s_min
+
+    entry_header_pattern = re.compile(
+        rf"(### {re.escape(date_str)} \| (\d{{2}}:\d{{2}}) - (\d{{2}}:\d{{2}}) \|[^\n]*\n(?:(?!\n### ).)*)",
+        re.DOTALL
+    )
+
+    for match in entry_header_pattern.finditer(content):
+        matched_text = match.group(1)
+        ex_st = match.group(2)
+        ex_et = match.group(3)
+        ex_s = to_min(ex_st)
+        ex_e = to_min(ex_et)
+        ex_dur = ex_e - ex_s
+
+        # If existing is a full-day placeholder (>= 8 hours, e.g. 09:00 - 18:00 Daily Development) and current is discrete sub-block
+        if ex_dur >= 480 and current_dur < 480 and ("Daily Development" in matched_text):
+            content = content.replace(matched_text.strip(), "").strip()
+            if not content.endswith("\n\n"):
+                content += "\n\n"
+            break
+
+        overlap = min(e_min, ex_e) - max(s_min, ex_s)
+        if overlap > 0:
+            # If same start time or overlap covers majority of the block
+            if ex_st == start_time or (current_dur > 0 and overlap / current_dur >= 0.75):
+                content = content.replace(matched_text.strip(), entry_md.strip())
+                log_path.write_text(content, encoding="utf-8")
+                print(f"[OK] Replaced overlapping entry for {date_str} ({ex_st} - {ex_et} -> {start_time} - {end_time}) in {log_path.name}")
+                return True
+
+    if not content.endswith("\n\n"):
+        content += "\n"
+    content += entry_md.strip() + "\n\n"
+    log_path.write_text(content, encoding="utf-8")
+    print(f"[OK] Appended new entry for {date_str} ({start_time} - {end_time}) in {log_path.name}")
     return True
 
 

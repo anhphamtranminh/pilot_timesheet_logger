@@ -34,3 +34,5 @@ The continuous improvement pattern: **log → review what broke → improve the 
   - Designed compact `ai_input` serialization in `scripts/prepare_prompt.py` that passes only essential fields (`id`, sanitized `title`, and active `commits`), compressing multi-block payloads to ~250–280 tokens.
   - Added regex sanitization in `scripts/fetch_workspace_timesheet.py` to strip `#SE` classification suffixes.
   - Enabled two-way synchronization: read existing blocks from Gradion Workspace and post unlogged blocks back to the platform without duplicate range collisions.
+  - Added support for updating existing and overlapping blocks via MCP `edit_time`, ensuring blocks (even if initially empty or created manually) get updated with their corresponding commits and PRs.
+  - Included both commit subjects (`| Commits: ...`) and pull requests (`| PRs: ...`) directly within the Gradion Workspace entry description so they are clearly visible on the platform timesheet UI.
