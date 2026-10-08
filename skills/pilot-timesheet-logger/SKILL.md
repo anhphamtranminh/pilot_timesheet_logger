@@ -21,7 +21,7 @@ Activate this skill whenever the user says or types:
 
 ## Daily Execution Protocol for Claude / Antigravity
 
-When activated by `log`, immediately execute the master pipeline with workspace synchronization:
+When activated by `log`, immediately execute the master pipeline with workspace synchronization in a single command without asking preliminary questions and without running git status, git branch, ls, or exploratory commands:
 ```bash
 python3 scripts/run_pipeline.py --sync-workspace
 ```

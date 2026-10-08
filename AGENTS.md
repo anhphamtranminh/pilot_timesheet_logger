@@ -6,7 +6,7 @@ This workspace contains the automated daily timesheet logger for personal pilot 
 
 ## Quick Trigger: `log`
 Whenever the user types `log`, `/log`, `/timesheet`, or asks to "log today's work" / "record timesheet":
-**Immediately execute the pipeline orchestrator with workspace synchronization in a single command without asking preliminary or clarifying questions:**
+**Immediately execute the pipeline orchestrator with workspace synchronization in a single command without asking preliminary or clarifying questions, and without running git status, git branch, ls, or any exploratory inspection commands:**
 ```bash
 python3 scripts/run_pipeline.py --sync-workspace
 ```
@@ -25,7 +25,7 @@ Show the user:
 
 ## Quick Test Trigger: `log test` / `test log` / `log --dry-run`
 Whenever the user types `log test`, `test log`, `/log:test`, `log --dry-run`, or asks to "test the logging workflow" / "dry run timesheet" / "test workflow on agy":
-**Immediately execute the visual test runner in dry-run mode:**
+**Immediately execute the visual test runner in dry-run mode without running git status, git branch, ls, or any exploratory inspection commands:**
 ```bash
 python3 scripts/test_workflow.py
 ```
