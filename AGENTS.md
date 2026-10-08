@@ -6,13 +6,31 @@ This workspace contains the automated daily timesheet logger for personal pilot 
 
 ## Quick Trigger: `log`
 Whenever the user types `log`, `/log`, `/timesheet`, or asks to "log today's work" / "record timesheet":
-**Immediately execute the pipeline orchestrator with workspace synchronization in a single command without asking preliminary or clarifying questions, and without running git status, git branch, ls, or any exploratory inspection commands:**
-```bash
-python3 scripts/run_pipeline.py --sync-workspace
-```
-*(If logging for a specific past date, append `--date YYYY-MM-DD`)*
+1. **Immediately execute the pipeline in dry-run preview mode in a single command without asking preliminary questions and without running git status, git branch, ls, or exploratory commands:**
+   ```bash
+   python3 scripts/run_pipeline.py --dry-run
+   ```
+   *(If logging for a specific past date, append `--date YYYY-MM-DD`)*
 
-*(Optional topic synthesis: if custom synthesized topics are requested, pass `--topics-json '{"1": "<Synthesized Topic Sentence>"}'` to `run_pipeline.py --sync-workspace`)*
+2. **Present the formatted Markdown preview of the day's time blocks to the user.**
+
+3. **Ask for confirmation using `ask_question`:**
+   - Question: "Would you like to write these entries to the timesheet and sync to Gradion Workspace?"
+   - Options:
+     - "(Recommended) Yes, log to timesheet and sync to Gradion Workspace"
+     - "No, cancel without making changes"
+
+4. **Upon user confirmation, execute live persistence with workspace synchronization:**
+   ```bash
+   python3 scripts/run_pipeline.py --sync-workspace
+   ```
+   *(If logging for a specific past date, append `--date YYYY-MM-DD`)*
+
+   *(Optional topic synthesis: if custom synthesized topics are requested, pass `--topics-json '{"1": "<Synthesized Topic Sentence>"}'` to `run_pipeline.py --sync-workspace`)*
+
+5. **If the user cancels, stop execution immediately and report that no changes were made.**
+
+*(Note: If the user provides `--force`, `-y`, or explicitly instructs to log without confirmation, steps 1-3 are bypassed and live persistence runs directly).*
 
 ### Report Summary to User
 Show the user:

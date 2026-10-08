@@ -37,10 +37,10 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertIn("[Step 1/5] Extracting Data", output)
         self.assertIn("[Step 2/5] Minimal AI Input Payload", output)
         self.assertIn("[Step 3/5] AI Topic Synthesis", output)
-        self.assertIn("[Step 4/5] Formatting Section 3.2 Markdown Entries", output)
+        self.assertIn("[Step 4/5] Formatting Standard Markdown Entries", output)
         self.assertIn("[Step 5/5] Token Budget & Performance Metrics", output)
         self.assertIn("DRY-RUN SIMULATION", output)
-        self.assertIn("Dry run completed successfully!", output)
+        self.assertIn("Dry run completed successfully", output)
 
     def test_workflow_with_custom_topics(self):
         """Test workflow execution with custom synthesized topics provided by AI/user."""
