@@ -238,15 +238,323 @@ def fetch_all_prs(target_date: str) -> list:
     return extract_prs_from_git_log(target_date)
 
 
+def clean_snippet(text: str, max_len: int = 70) -> str:
+    """Format and truncate multiline text into a clean snippet."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    if len(cleaned) > max_len:
+        return cleaned[:max_len - 3] + "..."
+    return cleaned
+
+
+def fetch_comments_and_reviews_from_repos_gh_cli(target_date: str, username: str, repos: list) -> tuple:
+    """Fetch comments and reviews across configured repos using gh CLI."""
+    gh_bin = None
+    for bin_path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "gh"]:
+        try:
+            check = subprocess.run([bin_path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if check.returncode == 0:
+                gh_bin = bin_path
+                break
+        except FileNotFoundError:
+            continue
+
+    if not gh_bin:
+        return [], []
+
+    project_root = find_project_root()
+    comments = []
+    reviews = []
+    seen_comments = set()
+    seen_reviews = set()
+
+    for r in repos:
+        repo_path = Path(r)
+        if not repo_path.is_absolute():
+            repo_path = (project_root / repo_path).resolve()
+
+        if not repo_path.is_dir():
+            continue
+
+        repo_name = repo_path.name
+
+        # 1. Fetch PR comments and reviews
+        pr_cmd = [
+            gh_bin, "pr", "list",
+            "--state", "all",
+            "--json", "number,title,comments,reviews,updatedAt,url",
+            "--limit", "30"
+        ]
+        try:
+            res_pr = subprocess.run(pr_cmd, cwd=str(repo_path), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res_pr.returncode == 0 and res_pr.stdout.strip():
+                items = json.loads(res_pr.stdout)
+                for item in items:
+                    num = f"#{item.get('number')}"
+                    # Check PR comments
+                    for c in item.get("comments", []):
+                        created_date = iso_to_local_date(c.get("createdAt") or "")
+                        if created_date == target_date:
+                            author = c.get("author", {}).get("login", "")
+                            body = c.get("body", "")
+                            action_time = iso_to_local_time(c.get("createdAt") or "")
+                            if username and author and author.lower() == username.lower():
+                                summary = f"{num}: {clean_snippet(body)}"
+                            else:
+                                summary = f"{num} comment by @{author}: {clean_snippet(body)}"
+                            dedup_key = (repo_name, num, action_time, summary[:30])
+                            if dedup_key not in seen_comments:
+                                seen_comments.add(dedup_key)
+                                comments.append({
+                                    "number": num,
+                                    "time": action_time,
+                                    "author": author,
+                                    "repo": repo_name,
+                                    "summary": summary,
+                                    "url": c.get("url", "")
+                                })
+
+                    # Check PR reviews
+                    for rev in item.get("reviews", []):
+                        rev_ts = rev.get("submittedAt") or rev.get("createdAt") or ""
+                        rev_date = iso_to_local_date(rev_ts)
+                        if rev_date == target_date:
+                            author = rev.get("author", {}).get("login", "")
+                            state = rev.get("state", "").upper()
+                            body = rev.get("body", "")
+                            action_time = iso_to_local_time(rev_ts)
+
+                            state_clean = state.lower()
+                            if state_clean == "approved":
+                                summary = f"{num}: approved by @{author}"
+                            elif state_clean == "changes_requested":
+                                summary = f"{num}: changes requested by @{author}"
+                            elif state_clean == "commented":
+                                summary = f"{num}: review comment by @{author}"
+                            else:
+                                summary = f"{num}: review ({state_clean}) by @{author}"
+
+                            if body:
+                                summary += f": {clean_snippet(body, 50)}"
+
+                            dedup_key = (repo_name, num, action_time, summary[:30])
+                            if dedup_key not in seen_reviews:
+                                seen_reviews.add(dedup_key)
+                                reviews.append({
+                                    "number": num,
+                                    "time": action_time,
+                                    "author": author,
+                                    "repo": repo_name,
+                                    "state": state,
+                                    "summary": summary,
+                                    "url": rev.get("url", "")
+                                })
+        except Exception:
+            pass
+
+        # 2. Fetch Issue comments
+        iss_cmd = [
+            gh_bin, "issue", "list",
+            "--state", "all",
+            "--json", "number,title,comments,updatedAt,url",
+            "--limit", "30"
+        ]
+        try:
+            res_iss = subprocess.run(iss_cmd, cwd=str(repo_path), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res_iss.returncode == 0 and res_iss.stdout.strip():
+                items = json.loads(res_iss.stdout)
+                for item in items:
+                    num = f"#{item.get('number')}"
+                    for c in item.get("comments", []):
+                        created_date = iso_to_local_date(c.get("createdAt") or "")
+                        if created_date == target_date:
+                            author = c.get("author", {}).get("login", "")
+                            body = c.get("body", "")
+                            action_time = iso_to_local_time(c.get("createdAt") or "")
+                            if username and author and author.lower() == username.lower():
+                                summary = f"{num}: {clean_snippet(body)}"
+                            else:
+                                summary = f"{num} comment by @{author}: {clean_snippet(body)}"
+                            dedup_key = (repo_name, num, action_time, summary[:30])
+                            if dedup_key not in seen_comments:
+                                seen_comments.add(dedup_key)
+                                comments.append({
+                                    "number": num,
+                                    "time": action_time,
+                                    "author": author,
+                                    "repo": repo_name,
+                                    "summary": summary,
+                                    "url": c.get("url", "")
+                                })
+        except Exception:
+            pass
+
+    return comments, reviews
+
+
+def fetch_comments_and_reviews_from_user_events_gh_cli(target_date: str, username: str) -> tuple:
+    """Fetch user comments and reviews from GitHub user events."""
+    if not username:
+        return [], []
+
+    gh_bin = None
+    for bin_path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "gh"]:
+        try:
+            check = subprocess.run([bin_path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if check.returncode == 0:
+                gh_bin = bin_path
+                break
+        except FileNotFoundError:
+            continue
+
+    if not gh_bin:
+        return [], []
+
+    comments = []
+    reviews = []
+    try:
+        cmd = [gh_bin, "api", f"users/{username}/events"]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode == 0 and res.stdout.strip():
+            events = json.loads(res.stdout)
+            for ev in events:
+                created_at = ev.get("created_at", "")
+                if iso_to_local_date(created_at) != target_date:
+                    continue
+
+                action_time = iso_to_local_time(created_at)
+                repo_full = ev.get("repo", {}).get("name", "")
+                repo_name = repo_full.split("/")[-1] if "/" in repo_full else repo_full
+                ev_type = ev.get("type", "")
+                payload = ev.get("payload", {})
+
+                if ev_type == "IssueCommentEvent":
+                    issue = payload.get("issue", {})
+                    comment = payload.get("comment", {})
+                    num = f"#{issue.get('number')}"
+                    body = comment.get("body", "")
+                    summary = f"{num}: {clean_snippet(body)}"
+                    comments.append({
+                        "number": num,
+                        "time": action_time,
+                        "author": username,
+                        "repo": repo_name,
+                        "summary": summary,
+                        "url": comment.get("html_url", "")
+                    })
+                elif ev_type == "PullRequestReviewEvent":
+                    pr = payload.get("pull_request", {})
+                    review = payload.get("review", {})
+                    num = f"#{pr.get('number')}"
+                    state = review.get("state", "").upper()
+                    body = review.get("body", "")
+                    summary = f"{num}: review ({state.lower()})"
+                    if body:
+                        summary += f": {clean_snippet(body, 50)}"
+                    reviews.append({
+                        "number": num,
+                        "time": action_time,
+                        "author": username,
+                        "repo": repo_name,
+                        "state": state,
+                        "summary": summary,
+                        "url": review.get("html_url", "")
+                    })
+                elif ev_type == "PullRequestReviewCommentEvent":
+                    pr = payload.get("pull_request", {})
+                    comment = payload.get("comment", {})
+                    num = f"#{pr.get('number')}"
+                    body = comment.get("body", "")
+                    summary = f"{num}: review comment: {clean_snippet(body)}"
+                    comments.append({
+                        "number": num,
+                        "time": action_time,
+                        "author": username,
+                        "repo": repo_name,
+                        "summary": summary,
+                        "url": comment.get("html_url", "")
+                    })
+    except Exception:
+        pass
+
+    return comments, reviews
+
+
+def fetch_all_comments_and_reviews(target_date: str) -> tuple:
+    """Fetch all comments and PR reviews for target date across repos and user events."""
+    config = load_config()
+    username = config.get("user", {}).get("github_username", "")
+    root = find_project_root()
+    repos = list(config.get("repos", ["."]))
+
+    if config.get("auto_discover_siblings", True) and root.parent.exists():
+        for sibling in root.parent.iterdir():
+            if sibling.is_dir() and (sibling / ".git").exists() and sibling.resolve() != root.resolve():
+                sibling_resolved = str(sibling.resolve())
+                existing_resolved = [
+                    str(Path(r).resolve() if Path(r).is_absolute() else (root / r).resolve())
+                    for r in repos
+                ]
+                if sibling_resolved not in existing_resolved:
+                    repos.append(sibling_resolved)
+
+    repo_comments, repo_reviews = fetch_comments_and_reviews_from_repos_gh_cli(target_date, username, repos)
+    user_comments, user_reviews = fetch_comments_and_reviews_from_user_events_gh_cli(target_date, username)
+
+    # Merge and deduplicate comments
+    all_comments = []
+    seen_c = set()
+    for c in repo_comments + user_comments:
+        key = (c.get("number", ""), c.get("time", ""), c.get("summary", "")[:25])
+        if key not in seen_c:
+            seen_c.add(key)
+            all_comments.append(c)
+
+    # Merge and deduplicate reviews
+    all_reviews = []
+    seen_r = set()
+    for r in repo_reviews + user_reviews:
+        key = (r.get("number", ""), r.get("time", ""), r.get("summary", "")[:25])
+        if key not in seen_r:
+            seen_r.add(key)
+            all_reviews.append(r)
+
+    all_comments.sort(key=lambda x: x.get("time", ""))
+    all_reviews.sort(key=lambda x: x.get("time", ""))
+    return all_comments, all_reviews
+
+
+def fetch_all_comments(target_date: str) -> list:
+    """Fetch comments for target date."""
+    comments, _ = fetch_all_comments_and_reviews(target_date)
+    return comments
+
+
+def fetch_all_reviews(target_date: str) -> list:
+    """Fetch PR reviews for target date."""
+    _, reviews = fetch_all_comments_and_reviews(target_date)
+    return reviews
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Fetch pull requests for timesheet.")
+    parser = argparse.ArgumentParser(description="Fetch pull requests, comments, and reviews for timesheet.")
     parser.add_argument("--date", default=datetime.date.today().isoformat(), help="Target date YYYY-MM-DD")
     parser.add_argument("--pretty", action="store_true", help="Pretty print JSON")
+    parser.add_argument("--comments", action="store_true", help="Fetch comments instead of PRs")
+    parser.add_argument("--reviews", action="store_true", help="Fetch reviews instead of PRs")
     args = parser.parse_args()
 
-    prs = fetch_all_prs(args.date)
     indent = 2 if args.pretty else None
-    print(json.dumps(prs, indent=indent))
+    if args.comments:
+        res = fetch_all_comments(args.date)
+        print(json.dumps(res, indent=indent))
+    elif args.reviews:
+        res = fetch_all_reviews(args.date)
+        print(json.dumps(res, indent=indent))
+    else:
+        prs = fetch_all_prs(args.date)
+        print(json.dumps(prs, indent=indent))
 
 
 if __name__ == "__main__":

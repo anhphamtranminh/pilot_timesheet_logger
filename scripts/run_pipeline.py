@@ -78,7 +78,9 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
             "prs": prs,
             "source_title": cal_title,
             "repos": b.get("repos", []),
-            "commit_subjects": commits
+            "commit_subjects": commits,
+            "reviews": b.get("reviews", []),
+            "comments": b.get("comments", [])
         }
         if b.get("entry_id"):
             entry_dict["entry_id"] = b["entry_id"]
@@ -105,7 +107,9 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
                 prs=entry_dict["prs"],
                 source_title=entry_dict["source_title"],
                 repos=entry_dict["repos"],
-                commit_subjects=entry_dict["commit_subjects"]
+                commit_subjects=entry_dict["commit_subjects"],
+                reviews=entry_dict["reviews"],
+                comments=entry_dict["comments"]
             ))
 
     return formatted_entries

@@ -10,7 +10,7 @@ from pathlib import Path
 # Add parent directory to sys.path to import modules
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fetch_git import fetch_all_commits
-from fetch_prs import fetch_all_prs
+from fetch_prs import fetch_all_prs, fetch_all_comments_and_reviews
 from fetch_calendar import fetch_all_events
 
 
@@ -25,8 +25,17 @@ def time_to_minutes(time_str: str) -> int:
     return 0
 
 
-def assign_items_to_blocks(blocks: list, commits: list, prs: list, target_date: str = None) -> list:
-    """Assign commits and PRs to the time blocks based on timestamps and block metadata."""
+def assign_items_to_blocks(
+    blocks: list,
+    commits: list,
+    prs: list,
+    target_date: str = None,
+    comments: list = None,
+    reviews: list = None
+) -> list:
+    """Assign commits, PRs, comments, and reviews to the time blocks based on timestamps and block metadata."""
+    comments = comments or []
+    reviews = reviews or []
     is_today = (target_date == datetime.date.today().isoformat())
     now_dt = datetime.datetime.now()
     now_min = now_dt.hour * 60 + now_dt.minute
@@ -98,7 +107,9 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list, target_date: 
             "status": b.get("status", ""),
             "commits": [],
             "prs": set(),
-            "repos": set()
+            "repos": set(),
+            "reviews": [],
+            "comments": []
         })
 
     # If a day has no calendar events, write one entry (or morning/afternoon split if spanning lunch)
@@ -134,7 +145,9 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list, target_date: 
             "status": "",
             "commits": [],
             "prs": set(),
-            "repos": set()
+            "repos": set(),
+            "reviews": [],
+            "comments": []
         })
     elif commits:
         # Check if there are commits occurring significantly before the first scheduled block
@@ -157,7 +170,9 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list, target_date: 
                 "status": "",
                 "commits": [],
                 "prs": set(),
-                "repos": set()
+                "repos": set(),
+                "reviews": [],
+                "comments": []
             })
 
         # If there are commits occurring significantly after the last scheduled block, add trailing development blocks
@@ -179,7 +194,9 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list, target_date: 
                     "status": "",
                     "commits": [],
                     "prs": set(),
-                    "repos": set()
+                    "repos": set(),
+                    "reviews": [],
+                    "comments": []
                 })
                 last_block_end = 720
 
@@ -202,7 +219,9 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list, target_date: 
                     "status": "",
                     "commits": [],
                     "prs": set(),
-                    "repos": set()
+                    "repos": set(),
+                    "reviews": [],
+                    "comments": []
                 })
 
         # Re-index block_id sequentially
@@ -338,6 +357,58 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list, target_date: 
             if p_repo:
                 target_b["repos"].add(p_repo)
 
+    for r in reviews:
+        r_time_str = r.get("time", "")
+        r_time = time_to_minutes(r_time_str) if r_time_str else None
+        r_num = r.get("number", "")
+        r_repo = r.get("repo", "")
+        target_b = None
+
+        if r_time is not None and r_time > 0:
+            candidates = [b for b in structured_blocks if time_to_minutes(b["start_time"]) <= r_time <= time_to_minutes(b["end_time"])]
+            if candidates:
+                target_b = candidates[0]
+
+        if not target_b and r_num:
+            for b in structured_blocks:
+                if r_num in b.get("prs", set()):
+                    target_b = b
+                    break
+
+        if not target_b:
+            non_meetings = [b for b in structured_blocks if not is_meeting_block(b)]
+            target_b = non_meetings[0] if non_meetings else structured_blocks[0]
+
+        target_b["reviews"].append(r["summary"])
+        if r_repo:
+            target_b["repos"].add(r_repo)
+
+    for c in comments:
+        c_time_str = c.get("time", "")
+        c_time = time_to_minutes(c_time_str) if c_time_str else None
+        c_num = c.get("number", "")
+        c_repo = c.get("repo", "")
+        target_b = None
+
+        if c_time is not None and c_time > 0:
+            candidates = [b for b in structured_blocks if time_to_minutes(b["start_time"]) <= c_time <= time_to_minutes(b["end_time"])]
+            if candidates:
+                target_b = candidates[0]
+
+        if not target_b and c_num:
+            for b in structured_blocks:
+                if c_num in b.get("prs", set()) or c_num.lower() in b.get("title", "").lower():
+                    target_b = b
+                    break
+
+        if not target_b:
+            non_meetings = [b for b in structured_blocks if not is_meeting_block(b)]
+            target_b = non_meetings[0] if non_meetings else structured_blocks[0]
+
+        target_b["comments"].append(c["summary"])
+        if c_repo:
+            target_b["repos"].add(c_repo)
+
     result = []
     for b in structured_blocks:
         item = {
@@ -348,7 +419,9 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list, target_date: 
             "source": b.get("source", "calendar"),
             "repos": sorted(list(b["repos"])),
             "prs": sorted(list(b["prs"])),
-            "commit_subjects": b["commits"]
+            "commit_subjects": b["commits"],
+            "reviews": b.get("reviews", []),
+            "comments": b.get("comments", [])
         }
         if b.get("entry_id"):
             item["entry_id"] = b["entry_id"]
@@ -366,8 +439,11 @@ def generate_ai_payload(target_date: str) -> dict:
     commits = fetch_all_commits(target_date)
     prs = fetch_all_prs(target_date)
     events = fetch_all_events(target_date)
+    comments, reviews = fetch_all_comments_and_reviews(target_date)
 
-    blocks = assign_items_to_blocks(events, commits, prs, target_date=target_date)
+    blocks = assign_items_to_blocks(
+        events, commits, prs, target_date=target_date, comments=comments, reviews=reviews
+    )
 
     # Minimal payload passed to LLM for topic synthesis
     ai_view = []
@@ -375,6 +451,10 @@ def generate_ai_payload(target_date: str) -> dict:
         item = {"id": b["block_id"], "title": b["title"]}
         if b.get("commit_subjects"):
             item["commits"] = b["commit_subjects"]
+        if b.get("reviews"):
+            item["reviews"] = b["reviews"]
+        if b.get("comments"):
+            item["comments"] = b["comments"]
         ai_view.append(item)
 
     raw_str = json.dumps(ai_view, separators=(",", ":"))

@@ -63,7 +63,9 @@ def save_or_update_block_entry(entry_dict: dict, custom_log_path: Path = None) -
         prs=entry_dict.get("prs", []),
         source_title=entry_dict.get("source_title", ""),
         repos=entry_dict.get("repos", []),
-        commit_subjects=entry_dict.get("commit_subjects", [])
+        commit_subjects=entry_dict.get("commit_subjects", []),
+        reviews=entry_dict.get("reviews", []),
+        comments=entry_dict.get("comments", [])
     )
 
     # 1. Exact match on date, start_time, end_time
