@@ -14,6 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import find_project_root, load_config
 
 
+def estimate_tokens(text: str) -> int:
+    """Rough heuristic estimating token count from text length (1 token ~= 4 chars)."""
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+
 def get_token_csv_path() -> Path:
     """Get path to the token usage CSV."""
     root = find_project_root()

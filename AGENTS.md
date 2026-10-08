@@ -41,6 +41,18 @@ Show the user:
 
 ---
 
+## 🧪 Quick Test Trigger: `log test` / `test log` / `log --dry-run`
+Whenever the user types `log test`, `test log`, `/log:test`, `log --dry-run`, or asks to "test the logging workflow" / "dry run timesheet" / "test workflow on agy":
+**Immediately execute the visual test runner in dry-run mode:**
+```bash
+python3 scripts/test_workflow.py
+```
+*(If testing for a specific date, append `--date YYYY-MM-DD`)*
+
+Present the 5-step visual breakdown to the user, highlighting data extraction, prompt tokens, topic synthesis, markdown preview, and token budget compliance without modifying any log files or calling mutation APIs.
+
+---
+
 ## 📁 Skill Reference & Architectural Boundaries
 - Canonical Skill Definition: `skills/pilot-timesheet-logger/SKILL.md`
 - Deterministic Workflow Runbook: `skills/pilot-timesheet-logger/workflow.md`

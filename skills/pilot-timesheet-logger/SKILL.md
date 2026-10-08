@@ -10,9 +10,11 @@ A Claude Code skill for generating and maintaining daily personal timesheet entr
 ## When Claude / Antigravity Should Use This Skill
 Activate this skill whenever the user says or types:
 - `log` or `/log` or `/timesheet`
+- `log test`, `test log`, `/log:test`, or `log --dry-run` (triggers dry-run test runner)
 - *"log today's work"* or *"log my work for today"*
 - *"record my timesheet"* or *"fill my timesheet"*
 - *"generate daily log"* or *"run timesheet logger"*
+- *"test timesheet workflow"* or *"see and test the AI workflow"*
 - *"log yesterday's work"* (with an explicit date)
 
 ---
