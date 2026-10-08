@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Convenience runner for the Personal Pilot Timesheet Logger AI workflow test runner.
+# Usage:
+#   ./log-test
+#   ./log-test --date 2026-10-08
+#   ./log-test --live
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "${SCRIPT_DIR}/scripts/test_workflow.py" "$@"
