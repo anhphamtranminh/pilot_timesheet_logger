@@ -6,6 +6,57 @@ import json
 import sys
 
 
+import re
+
+
+def build_bullet_description(topic_summary: str, prs: list = None, commits: list = None) -> list:
+    """Build bullet points for description: PRs first, followed by topic bullets, and commits."""
+    bullets = []
+    if prs:
+        clean_prs = [p.strip() for p in prs if p.strip()]
+        if clean_prs:
+            bullets.append(f"PRs: {', '.join(clean_prs)}")
+
+    raw_topic = (topic_summary or "").strip()
+    raw_topic = re.sub(r"^PRs:\s*[^|]+\|\s*", "", raw_topic).strip()
+    raw_topic = re.sub(r"\s*\|\s*PRs:.*$", "", raw_topic).strip()
+    raw_topic = re.sub(r"\s*\|\s*Commits:.*$", "", raw_topic, flags=re.DOTALL).strip()
+
+    if raw_topic:
+        lines = [l.strip() for l in raw_topic.splitlines() if l.strip()]
+        if len(lines) > 1:
+            for l in lines:
+                clean_l = re.sub(r"^[-*•]\s*", "", l).strip()
+                clean_l = re.sub(r"^(?:and|&)\s+", "", clean_l, flags=re.IGNORECASE).strip()
+                if clean_l and not clean_l.startswith("PRs:") and not clean_l.startswith("Commits:"):
+                    clean_l = clean_l[0].upper() + clean_l[1:]
+                    if clean_l not in bullets:
+                        bullets.append(clean_l)
+        else:
+            if "; " in raw_topic:
+                items = [p.strip() for p in raw_topic.split("; ") if p.strip()]
+            elif ", and " in raw_topic:
+                prefix, last = raw_topic.rsplit(", and ", 1)
+                items = [p.strip() for p in prefix.split(", ") if p.strip()] + [last.strip()]
+            else:
+                items = [raw_topic]
+
+            for item in items:
+                clean_item = re.sub(r"^[-*•]\s*", "", item).strip()
+                clean_item = re.sub(r"^(?:and|&)\s+", "", clean_item, flags=re.IGNORECASE).strip()
+                if clean_item and not clean_item.startswith("PRs:") and not clean_item.startswith("Commits:"):
+                    clean_item = clean_item[0].upper() + clean_item[1:]
+                    if clean_item not in bullets:
+                        bullets.append(clean_item)
+
+    if commits:
+        clean_commits = [c.strip() for c in commits if c.strip()]
+        if clean_commits:
+            bullets.append(f"Commits: {'; '.join(clean_commits)}")
+
+    return bullets
+
+
 def format_single_entry(
     date: str,
     start_time: str,
@@ -21,20 +72,22 @@ def format_single_entry(
     repos = repos or []
     commit_subjects = commit_subjects or []
 
-    # Format with PR and issue numbers at the start of Description
-    description = topic_summary.strip()
-    if prs:
-        pr_str = ", ".join(prs)
-        if not description.startswith("PRs:"):
-            if " | PRs:" in description:
-                description = description.split(" | PRs:")[0].strip()
-            description = f"PRs: {pr_str} | {description}" if description else f"PRs: {pr_str}"
+    bullets = build_bullet_description(topic_summary, prs)
 
-    first_sentence = topic_summary.split('.')[0].strip()
+    first_sentence = (topic_summary or "Engineering Work").split('\n')[0].split('.')[0].strip()
+    first_sentence = re.sub(r"^PRs:\s*[^|]+\|\s*", "", first_sentence).strip()
     if len(first_sentence) > 65:
         header_title = first_sentence[:62].rsplit(" ", 1)[0] + "..."
     else:
         header_title = first_sentence or "Engineering Work"
+
+    desc_lines = []
+    if len(bullets) == 1 and not prs:
+        desc_lines.append(f"- **Description:** {bullets[0]}")
+    else:
+        desc_lines.append("- **Description:**")
+        for b in bullets:
+            desc_lines.append(f"  - {b}")
 
     lines = [
         f"### {date} | {start_time} - {end_time} | {header_title}",
@@ -42,7 +95,7 @@ def format_single_entry(
         f"- **Date:** {date}",
         f"- **Start time:** {start_time}",
         f"- **End time:** {end_time}",
-        f"- **Description:** {description}",
+    ] + desc_lines + [
         "- **Source Trace:**",
         f"  - *Calendar / Activity:* {source_title or 'General Work Block'}",
         f"  - *Repos:* {', '.join(repos) if repos else 'N/A'}",
