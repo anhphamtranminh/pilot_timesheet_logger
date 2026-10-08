@@ -22,9 +22,12 @@ def fallback_topic_grouping(commit_subjects: list, calendar_title: str) -> str:
     is_meeting = any(k in calendar_title.lower() for k in MEETING_KEYWORDS)
 
     if not commit_subjects:
+        clean_title = calendar_title
+        while clean_title.lower().endswith("and general engineering activities"):
+            clean_title = clean_title[:-len("and general engineering activities")].strip()
         if is_meeting:
-            return calendar_title
-        return f"{calendar_title} and general engineering activities"
+            return clean_title
+        return f"{clean_title} and general engineering activities"
 
     clean_items = []
     for s in commit_subjects:

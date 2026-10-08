@@ -96,6 +96,7 @@ def parse_mcp_entries_text(text: str, target_date: str) -> list:
             clean_title = re.sub(r"\s*\|\s*Commits:.*", "", clean_title, flags=re.DOTALL).strip()
             clean_title = re.sub(r"\s*\|\s*PRs:.*", "", clean_title).strip()
             clean_title = re.sub(r"^PRs:\s*[^|]+\|\s*", "", clean_title).strip()
+            clean_title = re.sub(r"(?:\s*and\s+general\s+engineering\s+activities)+", "", clean_title, flags=re.IGNORECASE).strip()
             lines = [re.sub(r"^[-*•]\s*", "", l).strip() for l in clean_title.splitlines() if l.strip()]
             lines = [l for l in lines if not l.startswith("PRs:") and not l.startswith("#")]
             if lines:
