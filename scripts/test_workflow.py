@@ -3,7 +3,7 @@
 
 Runs all 5 steps of the daily timesheet workflow in preview / dry-run mode
 so users can inspect data harvesting, prompt payload sizing, topic synthesis,
-Section 3.2 markdown formatting, and token consumption without modifying files.
+standard markdown formatting, and token consumption without modifying files.
 """
 
 import argparse
@@ -32,7 +32,7 @@ RESET = "\033[0m"
 
 def print_banner(target_date: str, mode: str):
     print(f"\n{BOLD}{CYAN}{'=' * 78}{RESET}")
-    print(f"{BOLD}{CYAN} 🧪 PILOT TIMESHEET LOGGER — AI WORKFLOW TEST RUNNER{RESET}")
+    print(f"{BOLD}{CYAN} PILOT TIMESHEET LOGGER -- AI WORKFLOW TEST RUNNER{RESET}")
     print(f"{CYAN}{'=' * 78}{RESET}")
     print(f" Target Date : {BOLD}{target_date}{RESET}")
     print(f" Mode        : {BOLD}{YELLOW if 'DRY-RUN' in mode else GREEN}{mode}{RESET}")
@@ -98,9 +98,9 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
     print()
 
     # -------------------------------------------------------------
-    # Step 4: Markdown Formatting (Section 3.2 Compliance)
+    # Step 4: Markdown Formatting Compliance
     # -------------------------------------------------------------
-    print(f"{BOLD}{BLUE}[Step 4/5] Formatting Section 3.2 Markdown Entries...{RESET}")
+    print(f"{BOLD}{BLUE}[Step 4/5] Formatting Standard Markdown Entries...{RESET}")
     formatted_entries = []
     for idx, b in enumerate(blocks):
         b_id = str(b.get("block_id", idx + 1))
@@ -134,7 +134,7 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
     pct = (total_tokens / budget_limit) * 100.0
     status_tag = f"{GREEN}[PASS]{RESET}" if total_tokens <= budget_limit else f"{YELLOW}[OPTIMIZE]{RESET}"
 
-    print(f"{BOLD}{BLUE}[Step 5/5] Token Budget & Performance Metrics (Section 3.6)...{RESET}")
+    print(f"{BOLD}{BLUE}[Step 5/5] Token Budget & Performance Metrics...{RESET}")
     print(f"  • Input Tokens  : {estimated_input_tokens}")
     print(f"  • Output Tokens : {estimated_output_tokens}")
     print(f"  • Total Tokens  : {BOLD}{total_tokens}{RESET} / {budget_limit} ({pct:.1f}%) {status_tag}")
@@ -145,7 +145,7 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
     # -------------------------------------------------------------
     print(f"{BOLD}{CYAN}{'=' * 78}{RESET}")
     if not live:
-        print(f" {GREEN}✔ Dry run completed successfully! No changes were written to disk or API.{RESET}")
+        print(f" {GREEN}[OK] Dry run completed successfully. No changes were written to disk or API.{RESET}")
         print(f" To execute this live, run:")
         print(f"   {BOLD}python3 scripts/run_pipeline.py --date {target_date} --sync-workspace{RESET}")
         print(f" Or simply type {BOLD}'log'{RESET} in Antigravity.")
@@ -153,7 +153,7 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
         from run_pipeline import run_daily_timesheet
         print(f" {GREEN}Executing live timesheet persistence...{RESET}")
         run_daily_timesheet(target_date, dry_run=False, custom_topics=synthesized_topics, sync_workspace=sync_workspace)
-        print(f" {GREEN}✔ Timesheet saved and synced successfully!{RESET}")
+        print(f" {GREEN}[OK] Timesheet saved and synced successfully.{RESET}")
     print(f"{BOLD}{CYAN}{'=' * 78}{RESET}\n")
 
 
