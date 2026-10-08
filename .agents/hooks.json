@@ -1,0 +1,16 @@
+{
+  "auto-allow-timesheet": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/anh.phamminh/Documents/pilot_timesheet/scripts/pre_tool_hook.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
