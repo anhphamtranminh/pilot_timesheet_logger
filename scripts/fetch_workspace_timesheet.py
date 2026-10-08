@@ -93,6 +93,9 @@ def parse_mcp_entries_text(text: str, target_date: str) -> list:
             clean_title = re.sub(r"\s*\|\s*#[A-Za-z0-9_-]+", "", desc).strip()
             clean_title = re.sub(r"\s*\|\s*Commits:.*", "", clean_title).strip()
             clean_title = re.sub(r"\s*\|\s*PRs:.*", "", clean_title).strip()
+            clean_title = re.sub(r"^PRs:.*?\|\s*", "", clean_title).strip()
+            parts = [p.strip() for p in clean_title.split("|") if p.strip()]
+            clean_title = " | ".join(dict.fromkeys(parts))
             blocks.append({
                 "title": clean_title,
                 "start_time": st,
@@ -243,14 +246,52 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
     desc = entry.get("topic_summary") or entry.get("description", "Daily Development")
     commits = entry.get("commit_subjects", [])
     prs = entry.get("prs", [])
+    if prs and not desc.startswith("PRs:"):
+        if " | PRs:" in desc:
+            desc = desc.split(" | PRs:")[0].strip()
+        desc = f"PRs: {', '.join(prs)} | {desc}" if desc else f"PRs: {', '.join(prs)}"
     if commits and "Commits:" not in desc:
         desc += f" | Commits: {'; '.join(commits)}"
-    if prs and "PRs:" not in desc:
-        desc += f" | PRs: {', '.join(prs)}"
 
     start_time = entry.get("start_time", "09:00")
     end_time = entry.get("end_time", "12:00")
     date_str = entry.get("date", datetime.date.today().isoformat())
+
+    # Ensure entry duration does not exceed Gradion Workspace limit (max 4 hours = 240 mins)
+    def parse_time_min(t_str):
+        parts = t_str.split(":")
+        return int(parts[0]) * 60 + int(parts[1]) if len(parts) >= 2 else 0
+
+    s_min = parse_time_min(start_time)
+    e_min = parse_time_min(end_time)
+
+    # Ensure entry never spans across lunch break (12:00 - 13:00 / 720 - 780 mins)
+    if s_min < 720 and e_min > 720 and not entry.get("entry_id"):
+        chunk_morn = dict(entry)
+        chunk_morn["end_time"] = "12:00"
+        ok_morn = post_workspace_timesheet_entry(chunk_morn)
+        ok_aft = True
+        if e_min > 780:
+            chunk_aft = dict(entry)
+            chunk_aft["start_time"] = "13:00"
+            ok_aft = post_workspace_timesheet_entry(chunk_aft)
+        return ok_morn and ok_aft
+
+    if e_min - s_min > 240 and not entry.get("entry_id"):
+        # Auto-split long entry into <= 4-hour chunks
+        current_s = s_min
+        all_ok = True
+        while current_s < e_min:
+            chunk_e = min(current_s + 240, e_min)
+            chunk_s_str = f"{current_s // 60:02d}:{current_s % 60:02d}"
+            chunk_e_str = f"{chunk_e // 60:02d}:{chunk_e % 60:02d}"
+            chunk_entry = dict(entry)
+            chunk_entry["start_time"] = chunk_s_str
+            chunk_entry["end_time"] = chunk_e_str
+            chunk_res = post_workspace_timesheet_entry(chunk_entry)
+            all_ok = all_ok and chunk_res
+            current_s = chunk_e
+        return all_ok
 
     # If entry_id is explicitly provided, update existing entry via edit_time
     entry_id = entry.get("entry_id")

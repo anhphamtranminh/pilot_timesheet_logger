@@ -18,7 +18,12 @@ from track_tokens import record_token_run
 
 def fallback_topic_grouping(commit_subjects: list, calendar_title: str) -> str:
     """Deterministic fallback topic summary if running entirely script-only."""
+    MEETING_KEYWORDS = ["meeting", "standup", "sync", "1:1", "catch-up", "q&a", "demo", "retro", "interview", "lunch", "kickoff", "discussion"]
+    is_meeting = any(k in calendar_title.lower() for k in MEETING_KEYWORDS)
+
     if not commit_subjects:
+        if is_meeting:
+            return calendar_title
         return f"{calendar_title} and general engineering activities"
 
     clean_items = []
@@ -31,11 +36,16 @@ def fallback_topic_grouping(commit_subjects: list, calendar_title: str) -> str:
 
     distinct = list(dict.fromkeys(clean_items))
     if len(distinct) == 1:
-        return distinct[0].capitalize()
+        commit_summary = distinct[0].capitalize()
     elif len(distinct) <= 3:
-        return ", ".join(distinct[:-1]) + f", and {distinct[-1]}"
+        commit_summary = ", ".join(distinct[:-1]) + f", and {distinct[-1]}"
     else:
-        return ", ".join(distinct[:3]) + f", and {len(distinct) - 3} other tasks"
+        commit_summary = ", ".join(distinct[:3]) + f", and {len(distinct) - 3} other tasks"
+
+    if is_meeting:
+        return f"{calendar_title}, and {commit_summary}"
+
+    return commit_summary
 
 
 def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: dict = None, sync_workspace: bool = False) -> list:

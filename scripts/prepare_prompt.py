@@ -25,11 +25,68 @@ def time_to_minutes(time_str: str) -> int:
     return 0
 
 
-def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
+def assign_items_to_blocks(blocks: list, commits: list, prs: list, target_date: str = None) -> list:
     """Assign commits and PRs to the time blocks based on timestamps and block metadata."""
-    structured_blocks = []
+    is_today = (target_date == datetime.date.today().isoformat())
+    now_dt = datetime.datetime.now()
+    now_min = now_dt.hour * 60 + now_dt.minute
 
-    for i, b in enumerate(blocks):
+    # Filter out calendar events that are lunch blocks
+    filtered_blocks = []
+    for b in blocks:
+        title_lower = b.get("title", "").lower()
+        st_m = time_to_minutes(b.get("start_time", "09:00"))
+        et_m = time_to_minutes(b.get("end_time", "12:00"))
+        if "lunch" in title_lower or (st_m >= 720 and et_m <= 780):
+            continue
+        filtered_blocks.append(b)
+
+    # Ensure no blocks overlap lunch break (12:00 - 13:00 / 720 - 780 minutes)
+    normalized_blocks = []
+    for b in filtered_blocks:
+        st_m = time_to_minutes(b.get("start_time", "09:00"))
+        et_m = time_to_minutes(b.get("end_time", "12:00"))
+        if st_m < 720 and et_m > 720:
+            # Block spans across lunch. Split into morning part and afternoon part.
+            morning_block = dict(b)
+            morning_block["end_time"] = "12:00"
+            normalized_blocks.append(morning_block)
+            if et_m > 780:
+                afternoon_block = dict(b)
+                afternoon_block["start_time"] = "13:00"
+                afternoon_block["entry_id"] = ""
+                normalized_blocks.append(afternoon_block)
+        elif 720 <= st_m < 780:
+            if et_m > 780:
+                b_copy = dict(b)
+                b_copy["start_time"] = "13:00"
+                normalized_blocks.append(b_copy)
+        elif st_m < 780 and et_m > 720 and et_m <= 780:
+            if st_m < 720:
+                b_copy = dict(b)
+                b_copy["end_time"] = "12:00"
+                normalized_blocks.append(b_copy)
+        else:
+            normalized_blocks.append(b)
+
+    # If logging for today, exclude blocks that are entirely in the future and cap ongoing blocks at current time
+    if is_today:
+        time_bounded = []
+        for b in normalized_blocks:
+            st_m = time_to_minutes(b.get("start_time", "09:00"))
+            et_m = time_to_minutes(b.get("end_time", "12:00"))
+            if st_m >= now_min:
+                continue
+            if et_m > now_min:
+                b_copy = dict(b)
+                b_copy["end_time"] = f"{now_dt.hour:02d}:{now_dt.minute:02d}"
+                time_bounded.append(b_copy)
+            else:
+                time_bounded.append(b)
+        normalized_blocks = time_bounded
+
+    structured_blocks = []
+    for i, b in enumerate(normalized_blocks):
         structured_blocks.append({
             "block_id": i + 1,
             "title": b.get("title", "Work Block"),
@@ -44,20 +101,28 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
             "repos": set()
         })
 
-    # Section 3.2: "If a day has no calendar events, still write one entry for that day, built from your commits and PRs."
+    # If a day has no calendar events, write one entry (or morning/afternoon split if spanning lunch)
     if not structured_blocks:
         start_time = "09:00"
-        end_time = "18:00"
         if commits:
             times = [c.get("time") for c in commits if c.get("time")]
             if times:
                 min_time = min(times)
-                max_time = max(times)
                 if time_to_minutes(min_time) < time_to_minutes("09:00"):
                     start_time = min_time
-                if time_to_minutes(max_time) > time_to_minutes("18:00"):
-                    end_time = max_time
 
+        if is_today:
+            end_minutes = min(time_to_minutes("18:00"), now_min)
+        else:
+            end_minutes = time_to_minutes("18:00")
+            if commits:
+                times = [c.get("time") for c in commits if c.get("time")]
+                if times:
+                    max_time = max(times)
+                    if time_to_minutes(max_time) > end_minutes:
+                        end_minutes = time_to_minutes(max_time)
+
+        end_time = f"{end_minutes // 60:02d}:{end_minutes % 60:02d}"
         structured_blocks.append({
             "block_id": 1,
             "title": "Daily Development",
@@ -72,21 +137,20 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
             "repos": set()
         })
     elif commits:
-        # If there are commits occurring significantly after the last scheduled block, add a trailing development block
-        last_block_end = time_to_minutes(structured_blocks[-1]["end_time"])
-        late_commits = [c for c in commits if time_to_minutes(c.get("time", "12:00")) > last_block_end + 30]
-        if late_commits:
-            max_c_time = max(time_to_minutes(c.get("time", "12:00")) for c in late_commits)
-            end_minutes = max(time_to_minutes("18:00"), max_c_time + 15)
-            end_hh = end_minutes // 60
-            end_mm = end_minutes % 60
-            end_time_str = f"{end_hh:02d}:{end_mm:02d}"
+        # Check if there are commits occurring significantly before the first scheduled block
+        first_block_start = time_to_minutes(structured_blocks[0]["start_time"])
+        early_commits = [c for c in commits if time_to_minutes(c.get("time", "12:00")) < first_block_start - 15]
+        if early_commits:
+            min_c_time = min(time_to_minutes(c.get("time", "12:00")) for c in early_commits)
+            start_hh = min_c_time // 60
+            start_mm = min_c_time % 60
+            start_time_str = f"{start_hh:02d}:{start_mm:02d}"
 
-            structured_blocks.append({
-                "block_id": len(structured_blocks) + 1,
-                "title": "Afternoon Development",
-                "start_time": structured_blocks[-1]["end_time"],
-                "end_time": end_time_str,
+            structured_blocks.insert(0, {
+                "block_id": 0,
+                "title": "Morning Development",
+                "start_time": start_time_str,
+                "end_time": structured_blocks[0]["start_time"],
                 "source": "commits_prs",
                 "entry_id": "",
                 "project": "",
@@ -96,7 +160,56 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
                 "repos": set()
             })
 
-    MEETING_KEYWORDS = ["meeting", "standup", "sync", "1:1", "catch-up", "q&a", "demo", "retro", "interview", "lunch"]
+        # If there are commits occurring significantly after the last scheduled block, add trailing development blocks
+        last_block_end = time_to_minutes(structured_blocks[-1]["end_time"])
+        late_commits = [c for c in commits if time_to_minutes(c.get("time", "12:00")) > last_block_end + 15]
+        if late_commits:
+            midday_commits = [c for c in late_commits if time_to_minutes(c.get("time", "12:00")) < 720]
+            afternoon_commits = [c for c in late_commits if time_to_minutes(c.get("time", "12:00")) >= 720]
+
+            if midday_commits and last_block_end < 720:
+                structured_blocks.append({
+                    "block_id": len(structured_blocks) + 1,
+                    "title": "Morning Development",
+                    "start_time": structured_blocks[-1]["end_time"],
+                    "end_time": "12:00",
+                    "source": "commits_prs",
+                    "entry_id": "",
+                    "project": "",
+                    "status": "",
+                    "commits": [],
+                    "prs": set(),
+                    "repos": set()
+                })
+                last_block_end = 720
+
+            if afternoon_commits:
+                start_m = max(780, last_block_end) if last_block_end >= 780 else 780
+                max_c_time = max(time_to_minutes(c.get("time", "12:00")) for c in afternoon_commits)
+                if is_today:
+                    end_m = min(now_min, max(max_c_time + 15, start_m + 15))
+                else:
+                    end_m = max(time_to_minutes("18:00"), max_c_time + 15)
+
+                structured_blocks.append({
+                    "block_id": len(structured_blocks) + 1,
+                    "title": "Afternoon Development",
+                    "start_time": f"{start_m // 60:02d}:{start_m % 60:02d}",
+                    "end_time": f"{end_m // 60:02d}:{end_m % 60:02d}",
+                    "source": "commits_prs",
+                    "entry_id": "",
+                    "project": "",
+                    "status": "",
+                    "commits": [],
+                    "prs": set(),
+                    "repos": set()
+                })
+
+        # Re-index block_id sequentially
+        for idx, b in enumerate(structured_blocks):
+            b["block_id"] = idx + 1
+
+    MEETING_KEYWORDS = ["meeting", "standup", "sync", "1:1", "catch-up", "q&a", "demo", "retro", "interview", "lunch", "kickoff", "discussion"]
 
     def is_meeting_block(b: dict) -> bool:
         title_lower = b.get("title", "").lower()
@@ -254,7 +367,7 @@ def generate_ai_payload(target_date: str) -> dict:
     prs = fetch_all_prs(target_date)
     events = fetch_all_events(target_date)
 
-    blocks = assign_items_to_blocks(events, commits, prs)
+    blocks = assign_items_to_blocks(events, commits, prs, target_date=target_date)
 
     # Minimal payload passed to LLM for topic synthesis
     ai_view = []

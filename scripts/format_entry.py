@@ -21,13 +21,14 @@ def format_single_entry(
     repos = repos or []
     commit_subjects = commit_subjects or []
 
-    # Format according to Section 3.2:
-    # "Put the grouped topics in Description, and the PRs: list at the end of it."
+    # Format with PR and issue numbers at the start of Description
     description = topic_summary.strip()
     if prs:
         pr_str = ", ".join(prs)
-        if "PRs:" not in description:
-            description = f"{description} | PRs: {pr_str}"
+        if not description.startswith("PRs:"):
+            if " | PRs:" in description:
+                description = description.split(" | PRs:")[0].strip()
+            description = f"PRs: {pr_str} | {description}" if description else f"PRs: {pr_str}"
 
     first_sentence = topic_summary.split('.')[0].strip()
     if len(first_sentence) > 65:

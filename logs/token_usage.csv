@@ -2,3 +2,4 @@ date,session_id,input_tokens,output_tokens,cache_tokens,total_tokens,workflow_ve
 2026-10-06,session-kickoff-01,180,95,0,275,v1.0,Kickoff day baseline run with prompt compression
 2026-10-07,manual-1791368338,98,25,0,123,v1.0,2026-10-07 daily timesheet run
 2026-10-07,manual-1791373949,281,85,0,366,v1.0,Gradion Workspace integration and 5-block synthesis
+2026-10-08,manual-1791442548,104,40,0,144,v1.0,
