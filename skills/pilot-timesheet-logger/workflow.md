@@ -1,14 +1,14 @@
 # Daily Timesheet Logger Workflow
 
-This document defines the daily execution procedure for the Personal Pilot Timesheet Logger.
+This document defines the daily execution procedure for the Personal Pilot Timesheet Logger in compliance with Assignment 1 Section 3.5.
 
 ---
 
 ## 1. Design Principles & Token Budget
 
-### Principle: Deterministic = [Script] | Judgment = [AI]
-- **[Script] steps:** Fixed, repeatable rules. The script extracts data, parses timestamps, deduplicates entries, formats markdown tables, and writes files. The AI never re-derives what code can compute.
-- **[AI] steps:** Reserved strictly for judgment—synthesizing raw commit subjects into concise, high-level engineering topics (e.g., combining 4 commit messages into *"Timesheet repo scaffolding and calendar integration"*), and evaluating ambiguous events.
+### Core Principle: Deterministic = [Script] | Judgment = [AI]
+- **[Script] steps:** Fixed, repeatable rules. Scripts extract git logs, parse calendar iCal feeds, query GitHub pull requests via CLI, deduplicate entries, format markdown fields, and write files. The AI never re-derives what code can compute deterministically.
+- **[AI] steps:** Reserved strictly for judgment—synthesizing raw commit subjects into concise, cohesive engineering topics (e.g., combining 5 commit messages into *"Personal pilot timesheet logger implementation, GitHub PR tracking, and token usage analytics"*), and evaluating ambiguous calendar meetings.
 
 ### Token Budget Target: < 350 tokens / day
 - **Target prompt tokens:** ~150 – 200 tokens
@@ -69,9 +69,4 @@ python3 scripts/run_pipeline.py --dry-run
 ### C. Offline / Fallback Run (Deterministic Regex Topic Grouping)
 ```bash
 python3 scripts/run_pipeline.py
-```
-
-### D. Direct JSON Entry Ingestion
-```bash
-python3 scripts/save_entry.py --json-input '{"date": "2026-10-06", "entries": [{"start_time": "08:00", "end_time": "18:00", "topic": "Daily Development", "bullets": ["Core task"], "prs": ["#1"], "sources": ["git:1"]}]}'
 ```
