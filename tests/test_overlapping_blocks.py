@@ -290,6 +290,72 @@ class TestOverlappingBlocks(unittest.TestCase):
         self.assertIn("Commits: refactor(skills): remove duplicates (fixes #3)", desc)
         self.assertIn("PRs: #3", desc)
 
+    def test_split_oversized_development_block(self):
+        """Oversized development blocks exceeding 105 min with multiple PRs/commits must be split into sub-blocks."""
+        blocks = [
+            {
+                "title": "Afternoon Development",
+                "start_time": "13:00",
+                "end_time": "17:00",
+                "source": "workspace_timesheet",
+                "entry_id": "orig-entry-uuid",
+                "project": "Gradion Academy"
+            }
+        ]
+        commits = [
+            {"time": "13:30", "subject": "feat: task 1", "repo": "pilot_timesheet", "prs": ["#101"]},
+            {"time": "14:20", "subject": "feat: task 2", "repo": "pilot_timesheet", "prs": ["#102"]},
+            {"time": "15:10", "subject": "feat: task 3", "repo": "pilot_timesheet", "prs": ["#103"]},
+            {"time": "16:40", "subject": "feat: task 4", "repo": "pilot_timesheet", "prs": ["#104"]}
+        ]
+        prs = [
+            {"number": "#101", "time": "13:35", "repo": "pilot_timesheet"},
+            {"number": "#102", "time": "14:25", "repo": "pilot_timesheet"},
+            {"number": "#103", "time": "15:15", "repo": "pilot_timesheet"},
+            {"number": "#104", "time": "16:45", "repo": "pilot_timesheet"}
+        ]
+
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+
+        # Block should be split into multiple sub-blocks (3 or 4)
+        self.assertGreater(len(assigned), 1)
+        for b in assigned:
+            start_m = int(b["start_time"].split(":")[0]) * 60 + int(b["start_time"].split(":")[1])
+            end_m = int(b["end_time"].split(":")[0]) * 60 + int(b["end_time"].split(":")[1])
+            duration = end_m - start_m
+            self.assertLessEqual(duration, 105, f"Sub-block {b['start_time']} - {b['end_time']} exceeds 105 minutes")
+            self.assertLessEqual(len(b["prs"]), 3, "Sub-block should have focused PR list")
+
+        # First sub-block preserves entry_id for workspace edit_time update
+        self.assertEqual(assigned[0].get("entry_id"), "orig-entry-uuid")
+        # Subsequent sub-blocks have empty entry_id for workspace post_time creation
+        for sub_b in assigned[1:]:
+            self.assertFalse(sub_b.get("entry_id"))
+
+    def test_meeting_block_not_split(self):
+        """Calendar meeting blocks should not be split even if duration > 105 min."""
+        blocks = [
+            {
+                "title": "All-hands Engineering Workshop & Discussion",
+                "start_time": "13:00",
+                "end_time": "15:00",
+                "source": "calendar"
+            }
+        ]
+        commits = [
+            {"time": "13:30", "subject": "feat: task 1", "repo": "pilot_timesheet", "prs": ["#101"]},
+            {"time": "14:30", "subject": "feat: task 2", "repo": "pilot_timesheet", "prs": ["#102"]}
+        ]
+        prs = [
+            {"number": "#101", "time": "13:30", "repo": "pilot_timesheet"},
+            {"number": "#102", "time": "14:30", "repo": "pilot_timesheet"}
+        ]
+
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+        self.assertEqual(len(assigned), 1)
+        self.assertEqual(assigned[0]["start_time"], "13:00")
+        self.assertEqual(assigned[0]["end_time"], "15:00")
+
 
 if __name__ == "__main__":
     unittest.main()
