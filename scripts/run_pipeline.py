@@ -17,7 +17,7 @@ from save_entry import save_or_update_block_entry
 from track_tokens import record_token_run
 
 
-def fallback_topic_grouping(commit_subjects: list, calendar_title: str) -> str:
+def fallback_topic_grouping(commit_subjects: list, calendar_title: str, prs: list = None) -> str:
     """Deterministic fallback topic summary if running entirely script-only."""
     MEETING_KEYWORDS = [
         "meeting", "standup", "1:1", "catch-up", "q&a",
@@ -34,6 +34,9 @@ def fallback_topic_grouping(commit_subjects: list, calendar_title: str) -> str:
             clean_title = clean_title[:-len("and general engineering activities")].strip()
         if is_meeting:
             return clean_title
+        if prs:
+            formatted_prs = [p if str(p).startswith("#") else f"#{p}" for p in prs]
+            return f"Problem investigation and task development for {', '.join(formatted_prs)}"
         return f"{clean_title} and general engineering activities"
 
     clean_items = []
@@ -70,6 +73,10 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
     blocks = payload.get("blocks", [])
     formatted_entries = []
 
+    if not blocks:
+        print(f"\n[INFO] No work activity or time blocks detected for {target_date} (e.g. leave/absence). Timesheet entry skipped.\n")
+        return []
+
     print(f"\n[INFO] Processing Timesheet for {target_date}...")
     print(f"[INFO] Found {len(blocks)} time block(s). Estimated AI prompt tokens: {payload['estimated_input_tokens']}\n")
 
@@ -84,7 +91,7 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
         elif isinstance(custom_topics, list) and idx < len(custom_topics):
             topic_summary = custom_topics[idx]
         else:
-            topic_summary = fallback_topic_grouping(commits, cal_title)
+            topic_summary = fallback_topic_grouping(commits, cal_title, prs=prs)
 
         entry_dict = {
             "date": target_date,
