@@ -78,6 +78,16 @@ def load_config() -> dict:
 
     return config
 
+def resolve_target_date(date_str: str = None) -> str:
+    """Normalize date argument, supporting YYYY-MM-DD, 'yesterday', 'today', or default today."""
+    import datetime
+    if not date_str or not str(date_str).strip() or str(date_str).strip().lower() in ("today", "now"):
+        return datetime.date.today().isoformat()
+    clean = str(date_str).strip().lower()
+    if clean == "yesterday":
+        return (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    return str(date_str).strip()
+
 
 if __name__ == "__main__":
     print(json.dumps(load_config(), indent=2))

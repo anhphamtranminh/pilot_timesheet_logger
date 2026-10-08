@@ -18,6 +18,7 @@ from prepare_prompt import generate_ai_payload
 from run_pipeline import fallback_topic_grouping
 from format_entry import format_single_entry
 from track_tokens import estimate_tokens
+from config import resolve_target_date
 
 
 # ANSI colors for terminal output
@@ -159,11 +160,15 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
 
 def main():
     parser = argparse.ArgumentParser(description="Test and visualize the AI timesheet logging workflow.")
-    parser.add_argument("--date", default=datetime.date.today().isoformat(), help="Target date YYYY-MM-DD (default: today)")
+    parser.add_argument("date_pos", nargs="?", default=None, help="Target date YYYY-MM-DD or 'yesterday' (optional positional argument)")
+    parser.add_argument("--date", default=None, help="Target date YYYY-MM-DD or 'yesterday'")
     parser.add_argument("--live", action="store_true", help="Perform live save to markdown and sync to Workspace")
     parser.add_argument("--sync-workspace", action="store_true", help="Sync to Gradion Workspace (if --live is enabled)")
     parser.add_argument("--topics-json", help="Optional JSON string of custom topic summaries")
     args = parser.parse_args()
+
+    raw_date = args.date or args.date_pos
+    target_date = resolve_target_date(raw_date)
 
     custom_topics = None
     if args.topics_json:
@@ -172,7 +177,7 @@ def main():
         except json.JSONDecodeError as e:
             print(f"[WARN] Failed to parse custom topics: {e}", file=sys.stderr)
 
-    run_workflow_test(args.date, custom_topics=custom_topics, live=args.live, sync_workspace=args.sync_workspace)
+    run_workflow_test(target_date, custom_topics=custom_topics, live=args.live, sync_workspace=args.sync_workspace)
 
 
 if __name__ == "__main__":
