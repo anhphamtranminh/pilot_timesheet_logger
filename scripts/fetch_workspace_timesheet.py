@@ -264,6 +264,19 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
 
     s_min = parse_time_min(start_time)
     e_min = parse_time_min(end_time)
+
+    # Ensure entry never spans across lunch break (12:00 - 13:00 / 720 - 780 mins)
+    if s_min < 720 and e_min > 720 and not entry.get("entry_id"):
+        chunk_morn = dict(entry)
+        chunk_morn["end_time"] = "12:00"
+        ok_morn = post_workspace_timesheet_entry(chunk_morn)
+        ok_aft = True
+        if e_min > 780:
+            chunk_aft = dict(entry)
+            chunk_aft["start_time"] = "13:00"
+            ok_aft = post_workspace_timesheet_entry(chunk_aft)
+        return ok_morn and ok_aft
+
     if e_min - s_min > 240 and not entry.get("entry_id"):
         # Auto-split long entry into <= 4-hour chunks
         current_s = s_min
