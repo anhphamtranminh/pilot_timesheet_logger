@@ -412,6 +412,84 @@ class TestOverlappingBlocks(unittest.TestCase):
         self.assertEqual(lines[1], "  - Prevent duplicate general engineering activities phrasing")
         self.assertEqual(lines[2], "  - Record updated daily timesheet entry")
 
+    def test_morning_dev_block_extended_to_0900(self):
+        """When morning dev block starts at 10:00 (e.g. data starts at 10:00), it extends to 09:00."""
+        blocks = [
+            {"title": "Core Development", "start_time": "10:00", "end_time": "12:00", "source": "calendar"}
+        ]
+        commits = [
+            {"time": "10:15", "subject": "feat: start morning task", "repo": "pilot_timesheet", "prs": ["#39"]}
+        ]
+        prs = [{"number": "#39", "time": "10:15", "repo": "pilot_timesheet"}]
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+        self.assertEqual(len(assigned), 1)
+        self.assertEqual(assigned[0]["start_time"], "09:00")
+        self.assertEqual(assigned[0]["end_time"], "12:00")
+        self.assertIn("#39", assigned[0]["prs"])
+
+    def test_morning_meeting_inserts_investigation_block_with_prs(self):
+        """When morning starts with a meeting after 09:00, 09:00-meeting block is created and linked to morning PR."""
+        blocks = [
+            {"title": "Morning Standup", "start_time": "10:00", "end_time": "10:30", "source": "calendar"},
+            {"title": "Feature Development", "start_time": "10:30", "end_time": "12:00", "source": "calendar"}
+        ]
+        commits = [
+            {"time": "11:00", "subject": "feat: implement endpoint", "repo": "pilot_timesheet", "prs": ["#42"]}
+        ]
+        prs = [{"number": "#42", "time": "11:00", "repo": "pilot_timesheet"}]
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+        self.assertEqual(len(assigned), 3)
+        self.assertEqual(assigned[0]["start_time"], "09:00")
+        self.assertEqual(assigned[0]["end_time"], "10:00")
+        self.assertEqual(assigned[0]["title"], "Morning Development")
+        self.assertIn("#42", assigned[0]["prs"])
+
+    def test_leave_morning_skips_morning_logging(self):
+        """Leave in the morning excludes morning block from billable timesheet."""
+        blocks = [
+            {"title": "Morning Off - Doctor Appointment", "start_time": "09:00", "end_time": "12:00", "source": "calendar"},
+            {"title": "Afternoon Work", "start_time": "13:00", "end_time": "18:00", "source": "calendar"}
+        ]
+        commits = [
+            {"time": "14:30", "subject": "feat: afternoon work", "repo": "pilot_timesheet", "prs": []}
+        ]
+        prs = []
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+        self.assertEqual(len(assigned), 1)
+        self.assertEqual(assigned[0]["start_time"], "13:00")
+        self.assertEqual(assigned[0]["end_time"], "18:00")
+
+    def test_leave_afternoon_skips_afternoon_logging(self):
+        """Leave in the afternoon excludes afternoon block from billable timesheet."""
+        blocks = [
+            {"title": "Morning Work", "start_time": "09:00", "end_time": "12:00", "source": "calendar"},
+            {"title": "Afternoon Off - Sick Leave", "start_time": "13:00", "end_time": "18:00", "source": "calendar"}
+        ]
+        commits = [
+            {"time": "10:30", "subject": "feat: morning commit", "repo": "pilot_timesheet", "prs": []}
+        ]
+        prs = []
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+        self.assertEqual(len(assigned), 1)
+        self.assertEqual(assigned[0]["start_time"], "09:00")
+        self.assertEqual(assigned[0]["end_time"], "12:00")
+
+    def test_zero_activity_all_day_returns_empty(self):
+        """If user is absent all day or on full-day leave with zero activity, returns empty list."""
+        blocks = [
+            {"title": "Annual Leave - Full Day Off", "start_time": "09:00", "end_time": "18:00", "source": "calendar"}
+        ]
+        commits = []
+        prs = []
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+        self.assertEqual(assigned, [])
+
+    def test_fallback_topic_grouping_with_prs_and_no_commits(self):
+        """fallback_topic_grouping should synthesize problem investigation when commits is empty and prs is present."""
+        from run_pipeline import fallback_topic_grouping
+        summary = fallback_topic_grouping([], "Morning Development", prs=["#39"])
+        self.assertEqual(summary, "Problem investigation and task development for #39")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -90,7 +90,7 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
         if custom_topics and (b_id in custom_topics or b.get("block_id") in custom_topics):
             topic = custom_topics.get(b_id) or custom_topics.get(b.get("block_id"))
         else:
-            topic = fallback_topic_grouping(commits, cal_title)
+            topic = fallback_topic_grouping(commits, cal_title, prs=b.get("prs", []))
 
         synthesized_topics[b_id] = topic
         print(f"  • Block {b_id} ({b.get('start_time')} - {b.get('end_time')}):")
