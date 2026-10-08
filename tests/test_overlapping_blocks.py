@@ -490,6 +490,70 @@ class TestOverlappingBlocks(unittest.TestCase):
         summary = fallback_topic_grouping([], "Morning Development", prs=["#39"])
         self.assertEqual(summary, "Problem investigation and task development for #39")
 
+    def test_no_artificial_filler_blocks_after_1800(self):
+        """Late evening commit at 22:15 should not create artificial filler blocks between 18:00 and 22:00."""
+        blocks = [
+            {"title": "Morning Development", "start_time": "09:00", "end_time": "12:00", "source": "calendar"},
+            {"title": "Afternoon Work", "start_time": "13:00", "end_time": "18:00", "source": "calendar"}
+        ]
+        commits = [
+            {"time": "10:30", "subject": "feat: morning work", "repo": "pilot_timesheet", "prs": []},
+            {"time": "15:00", "subject": "feat: afternoon work", "repo": "pilot_timesheet", "prs": []},
+            {"time": "22:15", "subject": "fix: late night fix", "repo": "pilot_timesheet", "prs": ["#41"]}
+        ]
+        prs = [{"number": "#41", "time": "22:15", "repo": "pilot_timesheet"}]
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+
+        # Verify no block has start_time between 18:00 and 22:00
+        intermediate_blocks = [
+            b for b in assigned
+            if "18:00" <= b["start_time"] < "22:00"
+        ]
+        self.assertEqual(intermediate_blocks, [])
+
+        # Verify evening block exists, starts at 22:00, and contains commit + PR
+        evening_blocks = [b for b in assigned if b["start_time"] >= "22:00"]
+        self.assertTrue(len(evening_blocks) >= 1)
+        self.assertEqual(evening_blocks[0]["start_time"], "22:00")
+        self.assertIn("fix: late night fix", evening_blocks[0]["commit_subjects"])
+        self.assertIn("#41", evening_blocks[0]["prs"])
+
+    def test_preserve_filler_blocks_between_0900_and_1800(self):
+        """General engineering and filler blocks between 09:00 and 18:00 should be preserved."""
+        blocks = [
+            {"title": "Morning Development", "start_time": "09:00", "end_time": "12:00", "source": "calendar"},
+            {"title": "Afternoon Development", "start_time": "13:00", "end_time": "18:00", "source": "calendar"}
+        ]
+        # Only 1 commit in morning, none in afternoon
+        commits = [
+            {"time": "10:00", "subject": "feat: morning task", "repo": "pilot_timesheet", "prs": []}
+        ]
+        prs = []
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+
+        # Afternoon blocks between 13:00 and 18:00 should still exist as filler/dev
+        afternoon_blocks = [b for b in assigned if b["start_time"] >= "13:00"]
+        self.assertTrue(len(afternoon_blocks) >= 1)
+        # All afternoon blocks should be <= 18:00
+        for b in afternoon_blocks:
+            self.assertLessEqual(b["end_time"], "18:00")
+
+    def test_calendar_meeting_after_1800_is_preserved(self):
+        """Calendar meeting/event after 18:00 without code commits must be preserved."""
+        blocks = [
+            {"title": "Afternoon Work", "start_time": "13:00", "end_time": "18:00", "source": "calendar"},
+            {"title": "Team Social & Evening Sync", "start_time": "18:30", "end_time": "19:30", "source": "calendar"}
+        ]
+        commits = [
+            {"time": "14:00", "subject": "feat: afternoon commit", "repo": "pilot_timesheet", "prs": []}
+        ]
+        prs = []
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+
+        evening_meeting = [b for b in assigned if "18:30" in b["start_time"]]
+        self.assertEqual(len(evening_meeting), 1)
+        self.assertEqual(evening_meeting[0]["title"], "Team Social & Evening Sync")
+
 
 if __name__ == "__main__":
     unittest.main()
