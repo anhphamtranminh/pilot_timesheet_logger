@@ -1,11 +1,11 @@
 ---
 name: pilot-timesheet-logger
-description: Generates and records daily internship timesheet entries from git commits, pull requests, and Google Calendar events into Section 3.2-compliant format with minimal token consumption.
+description: Generates and records daily internship timesheet entries from git commits, pull requests, and Google Calendar events into standard timesheet format with minimal token consumption.
 ---
 
 # Pilot Timesheet Logger Skill
 
-A Claude Code skill for generating and maintaining daily personal timesheet entries from real data sources: Git commits, Pull Requests, and Google Calendar events.
+A Claude Code / Antigravity skill for generating and maintaining daily personal timesheet entries from real data sources: Git commits, Pull Requests, and Google Calendar events.
 
 ## When Claude / Antigravity Should Use This Skill
 Activate this skill whenever the user says or types:
@@ -19,9 +19,15 @@ Activate this skill whenever the user says or types:
 
 ---
 
-## Daily Execution Protocol for Claude
+## Daily Execution Protocol for Claude / Antigravity
 
-When activated, Claude must follow the strict `[Script]` vs `[AI]` boundary defined in `workflow.md` to conserve tokens:
+When activated by `log`, immediately execute the master pipeline with workspace synchronization:
+```bash
+python3 scripts/run_pipeline.py --sync-workspace
+```
+*(If logging for a specific past date, append `--date YYYY-MM-DD`)*
+
+Alternatively, if custom topic synthesis is performed:
 
 ### Step 1: Extract & Aggregate Data [Script]
 Run the aggregation script via the Bash tool to extract today's git commits, PRs, and calendar blocks into a minimal structured JSON payload:
@@ -37,13 +43,13 @@ Inspect the JSON output returned by `prepare_prompt.py`. For each block:
 - Combine multiple minor commits into high-level themes; do not list raw individual commit messages.
 
 ### Step 3: Format & Persist Entry [Script]
-Pass your synthesized topic strings to the pipeline orchestrator to deterministically format Section 3.2 markdown and idempotently save to `logs/timesheet_YYYY-MM.md`:
+Pass your synthesized topic strings to the pipeline orchestrator to deterministically format markdown and idempotently save to `logs/timesheet_YYYY-MM.md` and sync with Gradion Workspace:
 ```bash
-python3 scripts/run_pipeline.py --topics-json '{"1": "<Synthesized Topic Sentence>"}'
+python3 scripts/run_pipeline.py --sync-workspace --topics-json '{"1": "<Synthesized Topic Sentence>"}'
 ```
 
 ### Step 4: Record Token Usage [Script]
-Log the session tokens to maintain evidence for the Section 3.6 optimization review:
+Log session tokens to maintain evidence for token optimization tracking:
 ```bash
 python3 scripts/track_tokens.py --record --date <YYYY-MM-DD> --input-tokens <PROMPT_TOKENS> --output-tokens <COMPLETION_TOKENS>
 ```
@@ -51,5 +57,6 @@ python3 scripts/track_tokens.py --record --date <YYYY-MM-DD> --input-tokens <PRO
 ### Step 5: Report Summary to User
 Show the user:
 1. The formatted timesheet entry that was appended or updated.
-2. The token usage confirmation (and chart status via `python3 scripts/track_tokens.py --chart`).
-3. Note any anomalies in `logs/improvement_log.md` if an event was missing or unclear.
+2. The Gradion Workspace synchronization status.
+3. The token usage confirmation (and chart status via `python3 scripts/track_tokens.py --chart`).
+4. Note any anomalies in `logs/improvement_log.md` if an event was missing or unclear.
