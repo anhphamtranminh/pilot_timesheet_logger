@@ -1,6 +1,6 @@
 # Daily Timesheet Logger Workflow
 
-This document defines the daily execution procedure for the Personal Pilot Timesheet Logger in compliance with Assignment 1 Section 3.5.
+This document defines the daily execution procedure for the Personal Pilot Timesheet Logger.
 
 ---
 
@@ -28,10 +28,10 @@ This document defines the daily execution procedure for the Personal Pilot Times
 | Step | Tag | Description | Responsible Tool / File |
 | :--- | :---: | :--- | :--- |
 | **1. Data Ingestion** | **[Script]** | Extract today's git commits, PRs (opened/reviewed/merged), and Google Calendar events/blocks. | `scripts/fetch_git.py`<br>`scripts/fetch_prs.py`<br>`scripts/fetch_calendar.py` |
-| **2. Source Aggregation** | **[Script]** | Map commits and PRs into calendar time blocks based on timestamps. Build compact payload. Collapses into 1 consolidated daily entry if no calendar events exist (Section 3.2). | `scripts/prepare_prompt.py` |
+| **2. Source Aggregation** | **[Script]** | Map commits and PRs into calendar time blocks based on timestamps. Build compact payload. Collapses into 1 consolidated daily entry if no calendar events exist. | `scripts/prepare_prompt.py` |
 | **3. Topic Synthesis** | **[AI]** | Evaluate time blocks: synthesize commit subjects into grouped high-level topics; verify work relevance. | AI Assistant (Judgment) |
-| **4. Entry Formatting** | **[Script]** | Validate required fields (`Date`, `Start time`, `End time`, `Description`, `PRs:` inline, source trace) and render standard Section 3.2 markdown. | `scripts/format_entry.py` |
-| **5. Persistent Storage** | **[Script]** | Idempotently write entries to monthly log (`logs/timesheet_YYYY-MM.md`). Overwrite matching time blocks without duplicate entries. | `scripts/save_entry.py` |
+| **4. Entry Formatting** | **[Script]** | Validate required fields (`Date`, `Start time`, `End time`, `Description`, `PRs:` inline, source trace) and render standard markdown. | `scripts/format_entry.py` |
+| **5. Persistent Storage & Sync** | **[Script]** | Idempotently write entries to monthly log (`logs/timesheet_YYYY-MM.md`) and sync with Gradion Workspace. | `scripts/save_entry.py`<br>`scripts/fetch_workspace_timesheet.py` |
 | **6. Token Measurement** | **[Script]** | Record session token usage (input, output, total) into tracking CSV. | `scripts/track_tokens.py` |
 | **7. Improvement Log** | **[AI]** | Document any edge cases or anomalies in `logs/improvement_log.md` for Friday review. | AI Assistant & Intern |
 
@@ -50,23 +50,23 @@ This document defines the daily execution procedure for the Personal Pilot Times
 
 ## 4. Execution Commands
 
-### A. End-to-End Execution with AI Topic Synthesis (Standard Workflow)
+### A. End-to-End Execution with Workspace Synchronization (Standard Workflow)
+```bash
+python3 scripts/run_pipeline.py --sync-workspace
+```
+
+### B. Execution with AI Topic Synthesis
 ```bash
 # 1. Pre-aggregate sources into minimal payload:
 python3 scripts/prepare_prompt.py
 
 # 2. (AI synthesizes concise topic per block)
 
-# 3. Format and save with synthesized topics:
-python3 scripts/run_pipeline.py --topics-json '{"1": "<AI Synthesized Topic>"}'
+# 3. Format, save, and sync with synthesized topics:
+python3 scripts/run_pipeline.py --sync-workspace --topics-json '{"1": "<AI Synthesized Topic>"}'
 ```
 
-### B. Dry-Run Preview (No Disk Writes)
+### C. Dry-Run Preview (No Disk Writes)
 ```bash
 python3 scripts/run_pipeline.py --dry-run
-```
-
-### C. Offline / Fallback Run (Deterministic Regex Topic Grouping)
-```bash
-python3 scripts/run_pipeline.py
 ```
