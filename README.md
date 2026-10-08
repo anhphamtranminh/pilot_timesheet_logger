@@ -1,12 +1,12 @@
-# ⏱️ Personal Pilot Timesheet Logger
+# Personal Pilot Timesheet Logger
 
-An automated, token-optimized daily timesheet logger built for personal engineering pilot tracking at Gradion Workspace. It extracts work from Git commits across multiple repositories, GitHub pull requests, and Google Calendar / Workspace events, synthesizing compliant daily markdown timesheet entries with minimal LLM token consumption.
+An automated, token-optimized daily timesheet logger built for engineering pilot tracking at Gradion Workspace. It extracts work from Git commits across multiple repositories, GitHub pull requests, and Google Calendar or Workspace events, synthesizing structured daily markdown timesheet entries with minimal LLM token consumption.
 
 Packaged as a dual **Claude Code** and **Google Antigravity (AGY)** native skill.
 
 ---
 
-## ⚡ Quick Triggers
+## Quick Triggers
 
 ### 1. In Antigravity (AGY) or Claude Code
 Open your AI assistant chat within this repository workspace and type:
@@ -35,9 +35,9 @@ python3 scripts/track_tokens.py --chart
 
 ---
 
-## 🏗️ Architecture: Strict [Script] vs [AI] Boundary
+## Architecture: Script vs AI Boundary
 
-In adherence to assignment Section 3.5, all deterministic data manipulation is handled by standalone Python scripts, reserving AI calls solely for high-level judgment and semantic topic synthesis.
+All deterministic data manipulation is handled by standalone Python scripts, reserving AI calls solely for high-level judgment and semantic topic synthesis.
 
 ```
 +-------------------------------------------------------------------------------+
@@ -68,7 +68,7 @@ In adherence to assignment Section 3.5, all deterministic data manipulation is h
 +-------------------------------------------------------------------------------+
 |                             4. FORMAT & PERSIST                               |
 |  [Script] scripts/format_entry.py                                             |
-|  • Formats Section 3.2 markdown block with inline PR references & traces     |
+|  • Formats markdown block with inline PR references & source traces           |
 |  [Script] scripts/save_entry.py                                               |
 |  • Idempotently updates logs/timesheet_YYYY-MM.md (replaces/appends)          |
 |  [Script] scripts/fetch_workspace_timesheet.py                                |
@@ -86,9 +86,9 @@ In adherence to assignment Section 3.5, all deterministic data manipulation is h
 
 ---
 
-## 📋 Section 3.2 Timesheet Markdown Specification
+## Timesheet Markdown Format
 
-Each entry adheres to the exact schema expected by human supervisors and the Gradion Workspace timesheet interface:
+Each entry adheres to the structured format matching the timesheet interface and daily logs:
 
 ```markdown
 ### 2026-10-08 | 08:50 - 18:00 | Workflow test runner implementation and Antigravity triggers...
@@ -105,11 +105,11 @@ Each entry adheres to the exact schema expected by human supervisors and the Gra
 
 ---
 
-## 📊 Token Efficiency & Measurement (Section 3.6)
+## Token Efficiency and Tracking
 
-The tool measures real prompt and completion token usage across all daily sessions to verify continuous optimization:
+The tool tracks prompt and completion token usage across all daily runs to keep execution lightweight:
 
-- **Target Budget:** Prompt input < 200 tokens, total session < 350 tokens.
+- **Token Budget:** Keeps prompt input compact (~50-150 tokens) and total session usage low (< 350 tokens).
 - **CSV Log:** Stored in `logs/token_usage.csv`.
 - **HTML Visual Dashboard:** `logs/token_stats.html`.
 - **Terminal Status:** Run `python3 scripts/track_tokens.py --chart` to inspect daily trends.
@@ -120,26 +120,25 @@ The tool measures real prompt and completion token usage across all daily sessio
 ======================================================================
 Date         Runs  Tokens   Target   Status  Visual
 ----------------------------------------------------------------------
-2026-10-06      1     185      350   PASS    [██████████                  ] 52.9%
-2026-10-07      2     320      350   PASS    [██████████████████          ] 91.4%
-2026-10-08      1     134      350   PASS    [███████                     ] 38.3%
+2026-10-06      1     185      350   PASS    [##########                  ] 52.9%
+2026-10-07      2     320      350   PASS    [##################          ] 91.4%
+2026-10-08      1     134      350   PASS    [#######                     ] 38.3%
 ----------------------------------------------------------------------
 Average Daily Usage: 213 tokens/day (60.9% of budget)
 ```
 
 ---
 
-## 🛠️ Repository Layout
+## Repository Layout
 
 ```
 .
 ├── AGENTS.md                          # Antigravity agent instructions & 'log' trigger runbook
-├── assignment-1-personal-pilot-...md   # Original assignment specification and grading rubric
 ├── config.example.json                # Configuration template
 ├── config.json                        # Local configuration (repos, authors, calendar URL)
 ├── log-test                           # Executable convenience script for dry-run testing
 ├── logs/
-│   ├── timesheet_2026-10.md           # Section 3.2 timesheet markdown store (one file per month)
+│   ├── timesheet_2026-10.md           # Monthly timesheet markdown log (one file per month)
 │   ├── improvement_log.md             # Continuous improvement & anomaly review log
 │   ├── token_usage.csv                # Historical token usage records
 │   └── token_stats.html               # Visual charts of token consumption trends
@@ -149,7 +148,7 @@ Average Daily Usage: 213 tokens/day (60.9% of budget)
 │   ├── fetch_calendar.py              # Google Calendar / iCal event extraction
 │   ├── fetch_workspace_timesheet.py   # Gradion Workspace API integration & two-way sync
 │   ├── prepare_prompt.py              # Token compressor & commit/PR-to-block allocator
-│   ├── format_entry.py                # Deterministic Section 3.2 markdown formatter
+│   ├── format_entry.py                # Deterministic markdown formatter
 │   ├── save_entry.py                  # Idempotent file updater with overlap replacement
 │   ├── run_pipeline.py                # Pipeline orchestrator
 │   ├── test_workflow.py               # Visual dry-run workflow test runner
@@ -164,9 +163,9 @@ Average Daily Usage: 213 tokens/day (60.9% of budget)
 
 ---
 
-## ⚙️ Setup & Configuration
+## Setup and Configuration
 
-1. **Clone & Prerequisites:**
+1. **Prerequisites:**
    - Python 3.9+ installed.
    - GitHub CLI (`gh`) authenticated (`gh auth login`).
    - Git configured.
@@ -198,7 +197,7 @@ Average Daily Usage: 213 tokens/day (60.9% of budget)
 
 ---
 
-## 🧪 Testing
+## Testing
 
 Run the automated test suite covering all 33 unit tests:
 ```bash
