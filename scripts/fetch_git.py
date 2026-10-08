@@ -105,19 +105,35 @@ def fetch_commits_for_repo(repo_path: Path, target_date: str, author_filter: str
 
 
 def fetch_all_commits(target_date: str, author_filter: str = "") -> list:
-    """Fetch commits across all configured repositories."""
+    """Fetch commits across all configured repositories and auto-discovered sibling repositories."""
     config = load_config()
     root = find_project_root()
-    repo_paths = config.get("repos", ["."])
+    repo_paths = list(config.get("repos", ["."]))
     author = author_filter or config.get("user", {}).get("git_author", "")
 
+    # Auto-discover sibling git repositories in root.parent (e.g. ~/Documents)
+    if config.get("auto_discover_siblings", True) and root.parent.exists():
+        for sibling in root.parent.iterdir():
+            if sibling.is_dir() and (sibling / ".git").exists() and sibling.resolve() != root.resolve():
+                sibling_resolved = str(sibling.resolve())
+                existing_resolved = [
+                    str(Path(r).resolve() if Path(r).is_absolute() else (root / r).resolve())
+                    for r in repo_paths
+                ]
+                if sibling_resolved not in existing_resolved:
+                    repo_paths.append(sibling_resolved)
+
     all_commits = []
+    seen_hashes = set()
     for rel_or_abs in repo_paths:
         p = Path(rel_or_abs)
         if not p.is_absolute():
             p = (root / p).resolve()
         commits = fetch_commits_for_repo(p, target_date, author)
-        all_commits.extend(commits)
+        for c in commits:
+            if c["hash"] not in seen_hashes:
+                seen_hashes.add(c["hash"])
+                all_commits.append(c)
 
     all_commits.sort(key=lambda x: x["time"])
     return all_commits

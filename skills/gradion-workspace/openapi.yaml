@@ -1,0 +1,1322 @@
+openapi: "3.0.3"
+info:
+  title: Gradion Workspace — Skill subset
+  version: "1.9.0"
+  description: |
+    Trimmed slice of the Gradion Workspace OpenAPI used by the
+    `gradion-workspace-api` skill. Read/search/summarize + send-with-confirmation
+    only. For the full surface (admin, integrations, realtime, file upload,
+    notifications, etc.) consult the source-of-truth specs in
+    `gw-contracts/openapi/*.yaml`.
+servers:
+  - url: https://workspace.gradion.com
+
+security:
+  - cookieAuth: []
+  - bearerAuth: []
+
+tags:
+  - name: auth
+  - name: users
+  - name: channels
+  - name: messages
+  - name: threads
+  - name: dms
+  - name: sidebar
+  - name: search
+  - name: files
+  - name: apps
+  - name: inbox
+
+paths:
+  /api/auth/me:
+    get:
+      operationId: getMe
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: Current user (use to verify the session is alive)
+      tags: [auth]
+      responses:
+        "200":
+          description: Current user + feature flags
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthMeResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/users:
+    get:
+      operationId: listUsers
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [clamp-limit, trim-empty, cap-list, to-markdown]
+      summary: List users in the workspace
+      tags: [users]
+      parameters:
+        - { name: workspace_id, in: query, required: true, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string, description: "Case-insensitive substring match on display_name/email." } }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 50 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0, description: "Pagination offset — skip this many results. Increase by `limit` each page to walk further; omit for the first page." } }
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+
+  /api/users/{id}:
+    get:
+      operationId: getUser
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: Get a single user by ID
+      tags: [users]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/users/batch:
+    post:
+      operationId: batchGetUsers
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: Resolve many user IDs → display names in one call
+      tags: [users]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+
+  /api/channels:
+    get:
+      operationId: listChannels
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [clamp-limit, trim-empty, cap-list, to-markdown]
+      summary: List public/private channels (does NOT include DMs/group DMs)
+      tags: [channels]
+      parameters:
+        - { name: type, in: query, schema: { type: string, enum: [public, private] } }
+        - { name: include_archived, in: query, schema: { type: boolean, default: false } }
+        - name: starred_only
+          in: query
+          schema: { type: boolean, default: false }
+          description: >-
+            When true, only channels the caller has starred are returned. The
+            filter is applied in SQL and suppresses any activity-window filter,
+            so one page returns the caller's whole starred set unless they have
+            more starred channels than `limit`. See core.yaml for the full
+            semantics.
+        - { name: search, in: query, schema: { type: string, description: "Case-insensitive channel-name prefix filter." } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 100 } }
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            description: >-
+              Opaque pagination cursor. Pass the `next_cursor` from the previous
+              response to fetch the next page; omit for the first page. A missing
+              `next_cursor` in the response means there are no more pages.
+      responses:
+        "200":
+          description: Channels page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [channels]
+                properties:
+                  channels:
+                    type: array
+                    items: { $ref: "#/components/schemas/Channel" }
+                  next_cursor: { type: string }
+
+  /api/channels/{slug}:
+    get:
+      operationId: getChannel
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: Get a single channel by slug
+      tags: [channels]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[a-z0-9-]+$", maxLength: 80 }
+      responses:
+        "200":
+          description: Channel
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Channel" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/channels/{slug}/leave:
+    post:
+      x-mcp-tier1: true
+      operationId: leaveChannel
+      x-gradion-action: delete
+      summary: Leave a channel or group conversation
+      description: |
+        Removes the caller from the channel or group DM. Destructive and not
+        easily reversible (rejoining a private channel or group DM requires an
+        invite).
+        Idempotent: leaving a channel you are not a member of is a no-op. The
+        last owner of a channel cannot leave (403). For a group_dm the caller
+        leaves the conversation; remaining members keep it.
+      tags: [channels]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[a-z0-9-]+$", maxLength: 80 }
+      responses:
+        "204": { description: Left the channel/conversation (or was not a member) }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/channels/{slug}/messages:
+    get:
+      operationId: listMessages
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [clamp-limit, trim-empty, cap-list, to-markdown]
+      summary: >-
+        List a channel's messages, newest first (defaults to the latest page).
+        Each message carries a per-channel `seq` — use it as a cursor. To read
+        only messages NEWER than one you've already seen (e.g. new replies since
+        you last looked), pass `after_seq=<that seq>` instead of listing the
+        channel again. To load OLDER history, pass `before_seq=<the oldest seq
+        you've seen>`. Reuse `seq` values from earlier results as the cursor
+        rather than re-fetching the whole channel.
+      tags: [messages]
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string, pattern: "^[a-z0-9-]+$", maxLength: 80 } }
+        - name: before_seq
+          in: query
+          schema:
+            type: integer
+            format: int64
+            description: >-
+              Cursor for OLDER messages: returns messages with seq < this value.
+              Pass the smallest `seq` from the previous page to page back through
+              history. Omit to start at the newest messages.
+        - name: after_seq
+          in: query
+          schema:
+            type: integer
+            format: int64
+            description: >-
+              Cursor for NEWER messages: returns messages with seq > this value.
+              Pass the `seq` of the last message you've already seen to fetch
+              only what's new since — do NOT re-list the whole channel. Takes
+              precedence over before_seq.
+        - name: around_msg_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+            description: >-
+              Return a window of messages centered on this message ID (jump to a
+              specific message). Takes precedence over after_seq and before_seq.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            description: "Max messages to return (default 50, max 100)."
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Message" }
+    post:
+      operationId: sendMessage
+      x-mcp-tier1: true
+      x-gradion-action: write
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: Send a message to a channel/DM/group DM (mutation — confirm first)
+      tags: [messages]
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string, pattern: "^[a-z0-9-]+$", maxLength: 80 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MessageCreate" }
+      responses:
+        "201":
+          description: Created message
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+
+  /api/messages/{id}:
+    patch:
+      operationId: updateMessage
+      x-mcp-tier1: true
+      x-gradion-action: write
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: Edit a message (mutation — confirm first)
+      tags: [messages]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string }
+                file_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                  description: When present, replaces ALL current attachments.
+      responses:
+        "200":
+          description: Updated message
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+        "403": { description: Not the author / not a member }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: deleteMessage
+      x-mcp-tier1: true
+      x-gradion-action: delete
+      summary: Delete a message (mutation — confirm first)
+      tags: [messages]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/threads/{threadId}/replies:
+    get:
+      operationId: getThreadReplies
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: >-
+        Get a thread's parent message and its replies (chronological). Most
+        threads fit in one page, so usually call with just `threadId`; use
+        `before_seq` only to page back through a very long thread.
+      tags: [threads]
+      parameters:
+        - { name: threadId, in: path, required: true, schema: { type: string } }
+        - name: before_seq
+          in: query
+          schema:
+            type: integer
+            format: int64
+            description: >-
+              Cursor for OLDER replies: returns replies with seq < this value.
+              Pass the smallest reply `seq` from the previous page to load
+              earlier replies. Omit to get the most recent page of the thread.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            description: "Max replies to return per page."
+      responses:
+        "200":
+          description: Parent + replies
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [parent_message, replies]
+                properties:
+                  parent_message: { $ref: "#/components/schemas/Message" }
+                  replies:
+                    type: array
+                    items: { $ref: "#/components/schemas/Message" }
+    post:
+      operationId: replyToThread
+      x-mcp-tier1: true
+      x-gradion-action: write
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: Reply to a thread (mutation — confirm first)
+      description: |
+        Post a reply into an existing thread, identified by `threadId` (the
+        thread's id — same value carried on a message's `thread_id`, or returned
+        as `thread.thread_id` on the parent message). The reply lands inside the
+        thread, NOT as a new top-level channel message — to post a standalone
+        channel/DM message use `sendMessage` instead. Set `also_in_channel: true`
+        to additionally surface the reply in the parent channel. Mention users
+        with `<@email|Name>` and link channels with `<#slug|Name>`.
+      tags: [threads]
+      parameters:
+        - { name: threadId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string }
+                file_ids:
+                  type: array
+                  items: { type: string }
+                also_in_channel:
+                  type: boolean
+                  default: false
+                  description: Also post the reply in the parent channel, not just the thread.
+      responses:
+        "201":
+          description: Reply sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Not a channel member }
+        "404": { description: Thread not found }
+
+  /api/dms/with-users:
+    post:
+      operationId: getDMsWithUsers
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: Resolve 1:1 DM channels by counterparty user IDs (does NOT return group DMs)
+      tags: [dms]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_ids]
+              properties:
+                user_ids:
+                  type: array
+                  items: { type: string }
+                  minItems: 1
+                  maxItems: 200
+      responses:
+        "200":
+          description: DM channels
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [channels]
+                properties:
+                  channels:
+                    type: array
+                    items: { $ref: "#/components/schemas/Channel" }
+
+  /api/sidebar/sections:
+    get:
+      operationId: listSidebarSections
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: User's sidebar — best way to enumerate DMs and group DMs
+      tags: [sidebar]
+      responses:
+        "200":
+          description: Sections + items
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SidebarSectionsResponse" }
+
+  /api/search:
+    get:
+      operationId: searchMessages
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [clamp-limit, trim-empty, cap-list, to-markdown]
+      summary: Full-text search with query syntax
+      description: |
+        Modifiers: terms "phrases" in:channel from:user before:YYYY-MM-DD after:YYYY-MM-DD on:YYYY-MM-DD
+      tags: [search]
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, description: "Search query. Supports modifiers: terms, \"phrases\", in:channel, from:user, before:YYYY-MM-DD, after:YYYY-MM-DD, on:YYYY-MM-DD." } }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0, description: "Pagination offset — skip this many results. Increase by `limit` each page to walk further; omit for the first page." } }
+      responses:
+        "200":
+          description: Results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+
+  /api/files:
+    post:
+      # x-mcp-tier1 omitted: not exposed to the external MCP connector pending product/security review.
+      operationId: initiateUpload
+      x-gradion-action: write
+      summary: Begin a file upload — returns a presigned PUT URL (mutation)
+      description: |
+        Two-step upload. This call reserves a pending file row and returns a
+        presigned `upload_url`; PUT the bytes to that URL, then call
+        `completeUpload` to finalize. The target channel is taken from
+        `channel_id` in the body. For channel-restricted personal API tokens
+        the body `channel_id` must be within the token's channel scope or the
+        call fails with 403 `scope_channel_not_allowed`.
+      tags: [files]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InitiateUploadRequest" }
+      responses:
+        "201":
+          description: Pending file + presigned upload URL
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InitiateUploadResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/files/{id}/complete:
+    patch:
+      # x-mcp-tier1 omitted: not exposed to the external MCP connector pending product/security review.
+      operationId: completeUpload
+      x-gradion-action: write
+      summary: Finalize a file upload after the bytes are PUT (mutation)
+      tags: [files]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Finalized file + presigned download URL
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompleteUploadResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/files/{id}:
+    get:
+      operationId: getFile
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: File metadata
+      tags: [files]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: File metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/File" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      # x-mcp-tier1 omitted: not exposed to the external MCP connector pending product/security review.
+      operationId: deleteFile
+      x-gradion-action: delete
+      summary: Delete a file (mutation — confirm first)
+      description: |
+        Permanently deletes the file and detaches it from any message.
+        Destructive and irreversible — an AI assistant MUST confirm with the
+        user before calling.
+      tags: [files]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/files/{id}/download:
+    get:
+      operationId: downloadFile
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [trim-empty, to-markdown]
+      summary: Get a presigned download URL for a file
+      tags: [files]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Presigned download URL (use to fetch file bytes)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DownloadURLResult" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/me/apps/mcp:
+    get:
+      # x-mcp-tier1 omitted: Tier-2 app-proxy plumbing (surfaced as <app-slug>__<tool>), never a Tier-1 tool.
+      operationId: listAppMCPCatalog
+      x-gradion-action: read
+      summary: List installed apps' MCP tools, resources, and prompts (MCP-compatible)
+      tags: [apps]
+      description: |
+        Returns every installed MCP-enabled app the caller can reach, with each
+        app's tools (MCP `inputSchema` shape), resources, and prompts. For PAT
+        auth the result is filtered to the token's app-scope (empty when the PAT
+        has no app-scope). Cache per session; it changes only when an admin
+        installs/refreshes an app.
+      responses:
+        "200":
+          description: App MCP catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items: { $ref: "#/components/schemas/AppMCPCatalogApp" }
+  /api/me/apps/{slug}/tools/{tool}/call:
+    post:
+      # x-mcp-tier1 omitted: Tier-2 app-proxy plumbing (surfaced as <app-slug>__<tool>), never a Tier-1 tool.
+      operationId: callAppMCPTool
+      x-gradion-action: write
+      summary: Call one installed-app MCP tool (proxied)
+      tags: [apps]
+      description: |
+        Proxies an MCP tools/call to the app on your behalf. Requires the PAT's
+        `write` action and the app in the token's app-scope. Returns the MCP
+        tools/call result (content, structuredContent, isError) plus resources
+        enriched with workspace deeplinks. The result's `_meta` block is
+        deliberately stripped on this REST surface — it is app-controlled and
+        meaningful only to MCP-Apps-negotiated MCP sessions.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string, pattern: "^[a-z][a-z0-9-]+$" } }
+        - { name: tool, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                arguments:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Tool call result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppMCPToolCallResult" }
+        "403": { description: "scope_action_not_allowed or scope_app_not_allowed" }
+        "404": { description: "tool_not_found (not installed or not permitted)" }
+
+  /api/me/apps/export:
+    get:
+      # x-mcp-tier1 omitted: Tier-2 bulk-export plumbing, never a Tier-1 tool.
+      operationId: listAppExportCatalog
+      x-gradion-action: read
+      summary: List installed apps' bulk-export datasets (MCP-compatible)
+      tags: [apps]
+      description: |
+        Returns every export-enabled installed app the caller can reach, with
+        each app's declared bulk-export datasets. For PAT auth the result is
+        filtered to the token's bulk-export scope (empty when the PAT has no
+        bulk-export scope). Page a dataset's rows via
+        `GET /api/me/apps/{slug}/export/{dataset}`.
+      responses:
+        "200":
+          description: App export catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items: { $ref: "#/components/schemas/AppExportCatalogApp" }
+
+  /api/me/apps/{slug}/export/{dataset}:
+    get:
+      # x-mcp-tier1 omitted: Tier-2 bulk-export plumbing, never a Tier-1 tool.
+      operationId: readAppExportDataset
+      x-gradion-action: read
+      summary: Page through one installed app's bulk-export dataset (proxied)
+      tags: [apps]
+      description: |
+        Proxies an export/read call to the app on your behalf, one page at a
+        time. Requires the PAT's `read` action and the app in the token's
+        bulk-export scope. Returns 404 `dataset_not_found` when the app or
+        dataset is not visible to the caller (hidden and missing are
+        indistinguishable), and 502 `rows_schema_mismatch` when a relayed row
+        fails the dataset's declared schema.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string, pattern: "^[a-z][a-z0-9-]+$" } }
+        - { name: dataset, in: path, required: true, schema: { type: string } }
+        - { name: cursor, in: query, schema: { type: string }, description: "Opaque pagination cursor from a previous page's next_cursor. Capped at 2048 bytes." }
+        - { name: limit, in: query, schema: { type: integer }, description: "Rows per page. Clamped server-side to [1, 1000]." }
+        - { name: updated_since, in: query, schema: { type: string, format: date-time }, description: "RFC3339 UTC. Incremental mode: return only rows changed strictly after this time, plus deleted-row tombstones. Omit for a full export. Send back the previous response's `as_of` — never your own clock." }
+      responses:
+        "200":
+          description: One page of dataset rows
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppExportReadPage" }
+        "400": { description: "invalid_cursor, invalid_limit, invalid_updated_since, or watermark_too_old" }
+        "403": { description: "scope_action_not_allowed or scope_bulk_export_not_allowed" }
+        "404": { description: "dataset_not_found (not installed or not permitted)" }
+        "502": { description: "rows_schema_mismatch" }
+
+  /api/notifications/inbox:
+    get:
+      operationId: listInbox
+      x-mcp-tier1: true
+      x-gradion-action: read
+      x-mcp-transforms: [clamp-limit, trim-empty, cap-list, to-markdown]
+      summary: Paginated inbox feed (notifications grouped by conversation)
+      description: |
+        Returns the calling user's inbox items newest-first, one per notification-worthy message.
+        Each item carries a short `body` preview (~120 chars), not the full message — fetch
+        `GET /api/channels/{slug}/messages` for full content. Spans all the user's channels.
+        Paginate via `before=<last_item_id>`. Stop when `has_more` is false or oldest item passes cutoff.
+        Use `source=human` to exclude bot items before grouping conversations.
+        Key fields: `thread_id` (group key for thread replies), `channel_id` (group key for channel items),
+        `type` (directed: mention/dm/thread_reply/dm_thread_reply/channel_mention; ambient: channel_message/reaction/bot_push/channel_added),
+        `message_id` (for permalink), `metadata.sender_is_bot` (filter before grouping).
+      tags: [inbox]
+      parameters:
+        - { name: before, in: query, schema: { type: integer, format: int64 }, description: "Pagination cursor — last item's id from previous page" }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 50 } }
+        - { name: source, in: query, schema: { type: string, enum: [all, ai, human], default: all }, description: "'human' excludes bots (recommended)" }
+      responses:
+        "200":
+          description: Inbox page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InboxListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/notifications/inbox/{id}/read:
+    patch:
+      operationId: markInboxItemRead
+      x-mcp-tier1: true
+      x-gradion-action: write
+      summary: Mark a single inbox item as read
+      tags: [inbox]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 }, description: "Inbox item id (from InboxItem.id)" }
+      responses:
+        "200":
+          description: Updated unread snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnreadSnapshot" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/notifications/inbox/{id}/unread:
+    patch:
+      operationId: markInboxItemUnread
+      x-mcp-tier1: true
+      x-gradion-action: write
+      summary: Mark a single inbox item as unread
+      tags: [inbox]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 }, description: "Inbox item id (from InboxItem.id)" }
+      responses:
+        "200":
+          description: Updated unread snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnreadSnapshot" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/notifications/inbox/read-all:
+    post:
+      operationId: markAllInboxRead
+      x-mcp-tier1: true
+      x-gradion-action: write
+      summary: Mark all inbox items as read
+      tags: [inbox]
+      responses:
+        "200":
+          description: Updated unread snapshot (all counts will be zero)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnreadSnapshot" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/notifications/inbox/read-by-channel:
+    post:
+      operationId: markInboxReadByChannel
+      x-mcp-tier1: true
+      x-gradion-action: write
+      summary: Mark all inbox items for a channel as read (optionally up to a cursor)
+      description: |
+        Marks inbox items in the given channel as read. Optionally pass `up_to_id`
+        to mark only items with id ≤ that value — useful for a per-channel read
+        cursor that also clears `unread_by_channel` for that channel.
+      tags: [inbox]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel_id]
+              properties:
+                channel_id: { type: string, description: "Channel UUID to mark as read" }
+                up_to_id:
+                  type: integer
+                  format: int64
+                  description: "Optional read-cursor — only items with id ≤ this value are marked. Omit to mark all items in the channel."
+      responses:
+        "200":
+          description: Updated unread snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnreadSnapshot" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/notifications/inbox/read-by-thread:
+    post:
+      operationId: markInboxReadByThread
+      x-mcp-tier1: true
+      x-gradion-action: write
+      summary: Mark all inbox items for a thread as read
+      tags: [inbox]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [thread_id]
+              properties:
+                thread_id: { type: string, description: "Thread UUID to mark as read" }
+      responses:
+        "200":
+          description: Updated unread snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnreadSnapshot" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: gw_session
+      description: "Web session cookie. CSRF requires `X-Requested-With: XMLHttpRequest` on non-GET requests."
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: gwm_<hex32>
+      description: Long-lived mobile bearer token. Equivalent access; no CSRF header needed.
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid session
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: |
+        Not permitted. For personal-API-token (PAT) callers this includes the
+        token lacking the required action (`scope_action_not_allowed`) or the
+        target channel being outside the token's scope
+        (`scope_channel_not_allowed`); for any caller it also covers domain
+        rules such as the last owner of a channel being unable to leave.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    User:
+      type: object
+      required: [id, workspace_id, email, display_name, role, is_guest, is_bot, is_active, created_at]
+      properties:
+        id: { type: string }
+        workspace_id: { type: string }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        full_name: { type: string }
+        has_avatar: { type: boolean }
+        job_title: { type: string }
+        timezone: { type: string }
+        role: { type: string }
+        is_guest: { type: boolean }
+        is_bot: { type: boolean }
+        is_active: { type: boolean }
+        is_import_placeholder: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AuthMeResponse:
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          required: [feature_flags]
+          properties:
+            feature_flags:
+              type: object
+              properties:
+                slack_import: { type: boolean }
+
+    Channel:
+      type: object
+      required: [id, workspace_id, name, slug, type, creator_id, is_archived, pinned_count, created_at]
+      properties:
+        id: { type: string }
+        workspace_id: { type: string }
+        name: { type: string }
+        slug:
+          type: string
+          description: URL-safe identifier used in `/api/channels/{slug}/...` paths. DM/group_dm channels have a slug too.
+        type:
+          type: string
+          enum: [public, private, dm, self_dm, group_dm]
+        topic: { type: string }
+        purpose: { type: string }
+        creator_id: { type: string }
+        is_archived: { type: boolean }
+        is_member: { type: boolean }
+        is_starred: { type: boolean }
+        member_count: { type: integer }
+        pinned_count: { type: integer }
+        last_message_at: { type: string, format: date-time }
+        last_message_preview: { type: string }
+        last_message_author_id: { type: string }
+        created_at: { type: string, format: date-time }
+
+    Message:
+      type: object
+      required: [id, workspace_id, channel_id, author_id, content, seq, type, edited, is_deleted, created_at, updated_at]
+      properties:
+        id: { type: string }
+        workspace_id: { type: string }
+        channel_id: { type: string }
+        author_id:
+          type: string
+          description: Resolve to a display name via /api/users/batch.
+        content: { type: string }
+        seq:
+          type: integer
+          format: int64
+          description: >-
+            Per-channel monotonic sequence. Use as the pagination cursor:
+            `after_seq=<seq>` to fetch messages newer than this one,
+            `before_seq=<seq>` to fetch older ones.
+        type:
+          type: string
+          enum: [user, system, bot]
+        edited: { type: boolean }
+        is_deleted: { type: boolean }
+        edited_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        thread_id:
+          type: string
+          description: Present if this message is a thread reply (or a parent — see thread.thread_id).
+        is_pinned: { type: boolean }
+        attachments:
+          type: array
+          items:
+            type: object
+            required: [id, filename, content_type, size_bytes]
+            properties:
+              id: { type: string }
+              filename: { type: string }
+              content_type: { type: string }
+              size_bytes: { type: integer, format: int64 }
+              has_thumbnail: { type: boolean }
+        reactions:
+          type: array
+          items: { $ref: "#/components/schemas/AggregatedReaction" }
+        thread: { $ref: "#/components/schemas/ThreadSummary" }
+
+    AggregatedReaction:
+      type: object
+      required: [emoji, count]
+      properties:
+        emoji: { type: string }
+        count: { type: integer }
+
+    ThreadSummary:
+      type: object
+      required: [thread_id, reply_count, last_reply_at, participant_ids]
+      properties:
+        thread_id: { type: string }
+        reply_count: { type: integer }
+        last_reply_at: { type: string, format: date-time }
+        participant_ids:
+          type: array
+          items: { type: string }
+
+    MessageCreate:
+      type: object
+      properties:
+        content: { type: string }
+        file_ids:
+          type: array
+          items: { type: string }
+        type:
+          type: string
+          enum: [user, system, bot]
+          default: user
+
+    SidebarSectionItem:
+      type: object
+      required: [channel_id, position]
+      properties:
+        channel_id: { type: string, format: uuid }
+        position: { type: integer }
+        added_at: { type: string, format: date-time }
+
+    SidebarSection:
+      type: object
+      required: [id, name, position, sort_by, muted, is_system, items]
+      properties:
+        id: { type: string, format: uuid }
+        name:
+          type: string
+          description: System sections include "channels", "direct-messages", "starred", etc.
+        emoji: { type: string }
+        sort_by:
+          type: string
+          enum: [alphabetical, recency, priority]
+        position: { type: integer }
+        muted: { type: boolean }
+        is_system: { type: boolean }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SidebarSectionItem" }
+
+    SidebarSectionsResponse:
+      type: object
+      required: [sections]
+      properties:
+        sections:
+          type: array
+          items: { $ref: "#/components/schemas/SidebarSection" }
+
+    SearchResponse:
+      type: object
+      required: [items, total_count, parsed_query]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SearchResultItem" }
+        total_count:
+          {
+            type: integer,
+            description: "Capped count, equal to len(items) for this page and never more than `limit`. A full page means more results may exist — this is not an exact total.",
+          }
+        parsed_query: { $ref: "#/components/schemas/ParsedQuery" }
+
+    SearchResultItem:
+      type: object
+      required: [message, highlight, channel_name, author_name]
+      properties:
+        message: { $ref: "#/components/schemas/Message" }
+        highlight:
+          type: string
+          description: ts_headline output with <mark> tags around hits.
+        channel_name: { type: string }
+        author_name: { type: string }
+
+    ParsedQuery:
+      type: object
+      required: [terms, phrases, channels, authors]
+      properties:
+        terms:    { type: array, items: { type: string } }
+        phrases:  { type: array, items: { type: string } }
+        channels: { type: array, items: { type: string } }
+        authors:  { type: array, items: { type: string } }
+        before:   { type: string, description: "YYYY-MM-DD" }
+        after:    { type: string, description: "YYYY-MM-DD" }
+
+    File:
+      type: object
+      required: [id, workspace_id, channel_id, uploader_id, filename, content_type, size_bytes, status, created_at]
+      properties:
+        id: { type: string }
+        workspace_id: { type: string }
+        channel_id: { type: string }
+        uploader_id: { type: string }
+        message_id: { type: string }
+        filename: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer, format: int64 }
+        status:
+          type: string
+          enum: [pending, uploaded, attached, deleted]
+        has_thumbnail: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    DownloadURLResult:
+      type: object
+      required: [download_url, expires_in]
+      properties:
+        download_url:
+          type: string
+          description: Presigned S3 URL — fetch bytes directly, no auth header needed.
+        expires_in:
+          type: integer
+          description: Seconds until the URL expires.
+
+    InitiateUploadRequest:
+      type: object
+      required: [filename, size_bytes, content_type]
+      properties:
+        filename: { type: string }
+        size_bytes: { type: integer, format: int64 }
+        content_type: { type: string }
+        channel_id:
+          type: string
+          description: Target channel. Omitted for avatar uploads (no channel).
+
+    InitiateUploadResult:
+      type: object
+      required: [file, upload_url, expires_in]
+      properties:
+        file: { $ref: "#/components/schemas/File" }
+        upload_url:
+          type: string
+          description: Presigned S3 PUT URL — upload the bytes here, then call completeUpload.
+        expires_in:
+          type: integer
+          description: Seconds until the upload URL expires.
+
+    CompleteUploadResult:
+      type: object
+      required: [file, download_url, expires_in]
+      properties:
+        file: { $ref: "#/components/schemas/File" }
+        download_url:
+          type: string
+          description: Presigned S3 download URL for the finalized file.
+        expires_in:
+          type: integer
+          description: Seconds until the download URL expires.
+
+    AppMCPCatalogApp:
+      type: object
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string }
+        rail_url: { type: string }
+        tools:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              description: { type: string }
+              inputSchema: { type: object, additionalProperties: true }
+              readOnlyHint:
+                type: boolean
+                description: MCP-standard annotation — true when the tool is read-only.
+              ui:
+                type: object
+                description: >-
+                  MCP Apps view attachment (from the tool's _meta.ui). Informational
+                  for REST consumers — views render only on MCP-Apps-negotiated MCP
+                  sessions, never via this REST surface.
+                properties:
+                  resource_uri: { type: string, description: "ui://<slug>/… view resource this tool renders into." }
+                  visibility:
+                    type: array
+                    items: { type: string }
+                    description: >-
+                      Surface set — "app" and/or "model". App-only tools
+                      (visibility ["app"] without "model") are never listed here.
+        resources:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              title: { type: string }
+              description: { type: string }
+              deeplinkPattern: { type: string }
+        prompts:
+          type: array
+          items: { type: object, additionalProperties: true }
+        uiResources:
+          type: array
+          description: >-
+            MCP Apps ui:// view resources referenced by the listed tools
+            (metadata only; the HTML is fetchable solely over MCP
+            resources/read on a negotiated session, not via REST).
+          items:
+            type: object
+            properties:
+              uri: { type: string }
+              name: { type: string }
+              mime_type: { type: string, description: "Always text/html;profile=mcp-app." }
+              meta: { type: object, additionalProperties: true }
+    AppMCPToolCallResult:
+      type: object
+      properties:
+        isError: { type: boolean }
+        content:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              text: { type: string }
+        structuredContent: { type: object, additionalProperties: true }
+        resources:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string }
+              id: { type: string }
+              label: { type: string }
+              deeplink: { type: string }
+
+    AppExportCatalogApp:
+      type: object
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string }
+        datasets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppExportCatalogDataset"
+
+    AppExportCatalogDataset:
+      type: object
+      properties:
+        name: { type: string }
+        title: { type: string }
+        description: { type: string }
+        schema: { type: object, additionalProperties: true }
+        required_role: { type: string }
+
+    AppExportReadPage:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        next_cursor: { type: string }
+        as_of: { type: string, format: date-time }
+
+    InboxItem:
+      type: object
+      required: [id, type, is_read, title, body, priority, created_at]
+      properties:
+        id: { type: integer, format: int64, description: "Use as `before` cursor for next page" }
+        type:
+          type: string
+          enum: [mention, channel_mention, dm, thread_reply, dm_thread_reply, reaction, channel_message, bot_push, channel_added, scheduled_failed, reminder]
+          description: "Directed (user owes reply): mention/dm/thread_reply/dm_thread_reply/channel_mention. Ambient: reaction/channel_message/bot_push/channel_added/reminder. Errors: scheduled_failed."
+        is_read: { type: boolean }
+        title: { type: string }
+        body: { type: string }
+        priority: { type: string, enum: [urgent, normal, low] }
+        channel_id: { type: string, description: "Group key when thread_id is null" }
+        message_id: { type: string, description: "Use for permalink: /channels/{slug}/messages/{message_id}" }
+        thread_id: { type: string, description: "Group key when non-null; indicates thread reply" }
+        sender_id: { type: string, description: "Resolve display name via POST /api/users/batch" }
+        created_at: { type: string, format: date-time }
+        metadata:
+          type: object
+          additionalProperties: true
+          description: "sender_is_bot (boolean): filter out before grouping conversations"
+
+    InboxListResponse:
+      type: object
+      required: [items, has_more]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/InboxItem" }
+        has_more: { type: boolean, description: "True if more pages exist — use last item's id as `before` cursor" }
+        unread_count:
+          type: integer
+          deprecated: true
+          description: |
+            Deprecated — no longer returned. `listInbox` stopped computing the
+            unread aggregate. Read counts from `UnreadSnapshot`, returned by every
+            mark-read mutation. The field stays in the schema so bundles minted
+            under 1.x keep working; it is removed in the next MAJOR.
+
+    UnreadSnapshot:
+      type: object
+      description: |
+        Returned by every mark-read mutation. Reflects the caller's unread state
+        after the mutation. If `partial` is true the mutation succeeded but counts
+        could not be read — ignore the count fields on this response. The next
+        mark-read mutation returns a fresh snapshot. `listInbox` returns items
+        only; it carries no unread counts.
+      properties:
+        seq:
+          type: integer
+          format: int64
+          description: Monotonic cursor (max inbox item id). Clients use this to detect stale snapshots.
+        unread_count: { type: integer, description: "Total unread inbox items across all channels." }
+        unread_by_channel:
+          type: object
+          additionalProperties: { type: integer }
+          description: "Map of channel_id → unread count. Omitted keys mean zero for that channel."
+        unread_by_thread:
+          type: object
+          additionalProperties: { type: integer }
+          description: "Map of thread_id → unread count."
+        channel_activity_ids:
+          type: array
+          items: { type: string }
+          description: "Channel IDs with any unread non-reaction row (superset of unread_by_channel keys)."
+        partial:
+          type: boolean
+          description: "True when the post-mutation count read failed. Treat counts as stale."

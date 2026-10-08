@@ -186,10 +186,23 @@ def fetch_prs_via_gh_cli(target_date: str, username: str) -> list:
 
 
 def fetch_all_prs(target_date: str) -> list:
-    """Fetch pull requests for the target date."""
+    """Fetch pull requests for the target date across repos and GitHub."""
     config = load_config()
     username = config.get("user", {}).get("github_username", "")
-    repos = config.get("repos", ["."])
+    root = find_project_root()
+    repos = list(config.get("repos", ["."]))
+
+    # Auto-discover sibling git repositories in root.parent (e.g. ~/Documents)
+    if config.get("auto_discover_siblings", True) and root.parent.exists():
+        for sibling in root.parent.iterdir():
+            if sibling.is_dir() and (sibling / ".git").exists() and sibling.resolve() != root.resolve():
+                sibling_resolved = str(sibling.resolve())
+                existing_resolved = [
+                    str(Path(r).resolve() if Path(r).is_absolute() else (root / r).resolve())
+                    for r in repos
+                ]
+                if sibling_resolved not in existing_resolved:
+                    repos.append(sibling_resolved)
 
     # First attempt: gh pr list across configured repos (fast, avoids secondary search rate limits)
     prs = fetch_prs_from_repos_gh_cli(target_date, username, repos)

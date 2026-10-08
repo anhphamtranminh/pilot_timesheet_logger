@@ -19,3 +19,18 @@ The continuous improvement pattern: **log → review what broke → improve the 
   - Built `scripts/prepare_prompt.py` to extract only clean commit subjects and group them chronologically into time blocks before passing to the AI.
   - Implemented configurable default work blocks in `config.json` so the tool generates standard morning and afternoon entries even on days without calendar events (satisfying Section 3.2).
   - Target token budget established: **< 350 tokens per day**. Measured Day 1 baseline: **275 tokens**.
+
+### Wed 7 Oct 2026
+- **What happened:**
+  - Integrated Gradion Workspace API using credentials stored in macOS Keychain (`GRADION_API_TOKEN`) and MCP proxy endpoints (`list_my_entries`, `log_time`).
+  - Successfully retrieved 4 live morning and afternoon time blocks from `https://workspace.gradion.com` and automatically matched them with multi-branch git commits.
+  - Added trailing development block detection (`16:00 - 18:58`) to isolate evening commits from earlier meeting blocks.
+  - Implemented sibling repo auto-discovery across `~/Documents/*` for multi-repo commit and PR harvesting.
+  - Synchronized new block directly to Gradion Workspace via `run_pipeline.py --sync-workspace`.
+- **What broke / needed adjustment:**
+  - Passing full block dictionaries for 5 distinct time blocks into `generate_ai_payload()` resulted in 483 estimated prompt tokens, failing the < 350 token daily budget contract in `tests/test_skill_packaging.py`.
+  - Workspace entry descriptions contained internal metadata tags (`| #SE`) which cluttered synthesized topic sentences.
+- **Improvements made:**
+  - Designed compact `ai_input` serialization in `scripts/prepare_prompt.py` that passes only essential fields (`id`, sanitized `title`, and active `commits`), compressing multi-block payloads to ~250–280 tokens.
+  - Added regex sanitization in `scripts/fetch_workspace_timesheet.py` to strip `#SE` classification suffixes.
+  - Enabled two-way synchronization: read existing blocks from Gradion Workspace and post unlogged blocks back to the platform without duplicate range collisions.

@@ -38,7 +38,7 @@ def fallback_topic_grouping(commit_subjects: list, calendar_title: str) -> str:
         return ", ".join(distinct[:3]) + f", and {len(distinct) - 3} other tasks"
 
 
-def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: dict = None) -> list:
+def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: dict = None, sync_workspace: bool = False) -> list:
     """Run timesheet generation pipeline for target_date."""
     payload = generate_ai_payload(target_date)
     blocks = payload.get("blocks", [])
@@ -75,6 +75,12 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
 
         if not dry_run:
             save_or_update_block_entry(entry_dict)
+            if sync_workspace:
+                try:
+                    from fetch_workspace_timesheet import post_workspace_timesheet_entry
+                    post_workspace_timesheet_entry(entry_dict)
+                except Exception as e:
+                    print(f"[WARN] Gradion Workspace sync error: {e}", file=sys.stderr)
         else:
             print("--- DRY RUN ENTRY ---")
             print(format_single_entry(
@@ -96,6 +102,7 @@ def main():
     parser.add_argument("--date", default=datetime.date.today().isoformat(), help="Target date YYYY-MM-DD")
     parser.add_argument("--dry-run", action="store_true", help="Print entries without saving to file")
     parser.add_argument("--topics-json", help="JSON object {block_id: topic_string} or list of topic strings synthesized by AI")
+    parser.add_argument("--sync-workspace", action="store_true", help="Sync entry to Gradion Workspace Timesheet app")
     args = parser.parse_args()
 
     custom_topics = None
@@ -105,7 +112,7 @@ def main():
         except json.JSONDecodeError as e:
             print(f"[WARN] Failed to parse --topics-json: {e}. Using fallback grouping.", file=sys.stderr)
 
-    run_daily_timesheet(args.date, args.dry_run, custom_topics)
+    run_daily_timesheet(args.date, args.dry_run, custom_topics, args.sync_workspace)
 
 
 if __name__ == "__main__":
