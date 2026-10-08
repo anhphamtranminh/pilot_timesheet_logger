@@ -23,6 +23,9 @@ def extract_topic_items(topic_summary: str) -> list:
         for l in lines:
             clean_l = re.sub(r"^[-*•]\s*", "", l).strip()
             clean_l = re.sub(r"^(?:and|&)\s+", "", clean_l, flags=re.IGNORECASE).strip()
+            clean_l = re.sub(r"^(?:feat|fix|docs|chore|refactor|test|style|perf|build|ci)(?:\([^)]+\))?:\s*", "", clean_l, flags=re.IGNORECASE).strip()
+            clean_l = re.sub(r"\s*\((?:fixes|closes|refs)?\s*#\d+\)", "", clean_l, flags=re.IGNORECASE).strip()
+            clean_l = re.sub(r"\s*\(#\d+\)", "", clean_l).strip()
             if clean_l and not clean_l.startswith("PRs:") and not clean_l.startswith("Commits:"):
                 clean_l = clean_l[0].upper() + clean_l[1:]
                 if clean_l not in items:
@@ -41,6 +44,9 @@ def extract_topic_items(topic_summary: str) -> list:
         for p in raw_parts:
             clean_p = re.sub(r"^[-*•]\s*", "", p).strip()
             clean_p = re.sub(r"^(?:and|&)\s+", "", clean_p, flags=re.IGNORECASE).strip()
+            clean_p = re.sub(r"^(?:feat|fix|docs|chore|refactor|test|style|perf|build|ci)(?:\([^)]+\))?:\s*", "", clean_p, flags=re.IGNORECASE).strip()
+            clean_p = re.sub(r"\s*\((?:fixes|closes|refs)?\s*#\d+\)", "", clean_p, flags=re.IGNORECASE).strip()
+            clean_p = re.sub(r"\s*\(#\d+\)", "", clean_p).strip()
             if clean_p and not clean_p.startswith("PRs:") and not clean_p.startswith("Commits:"):
                 clean_p = clean_p[0].upper() + clean_p[1:]
                 if clean_p not in items:
@@ -57,7 +63,7 @@ def format_description(topic_summary: str, prs: list = None) -> list:
       - Without PRs: - **Description:** <Topic>
     - If multiple items / too long (len(items) > 1):
       - First line: - **Description:** PRs: #... | <Topic 1> (or - **Description:** <Topic 1> if no PRs)
-      - Subsequent items formatted as indented bullets:
+      - Subsequent items formatted as indented bullets (max 2 bullets to keep concise):
         - <Topic 2>
         - <Topic 3>
     """
@@ -75,7 +81,8 @@ def format_description(topic_summary: str, prs: list = None) -> list:
         sub_items = []
     else:
         first_topic = items[0]
-        sub_items = items[1:]
+        # Keep descriptions concise by capping sub-items at at most 2 indented bullets
+        sub_items = items[1:3]
 
     if pr_prefix and first_topic:
         first_line = f"- **Description:** {pr_prefix} | {first_topic}"
@@ -148,10 +155,15 @@ def format_single_entry(
 
     first_sentence = (topic_summary or "Engineering Work").split('\n')[0].split('.')[0].strip()
     first_sentence = re.sub(r"^PRs:\s*[^|]+\|\s*", "", first_sentence).strip()
+    first_sentence = re.sub(r"^(?:feat|fix|docs|chore|refactor|test|style|perf|build|ci)(?:\([^)]+\))?:\s*", "", first_sentence, flags=re.IGNORECASE).strip()
+    first_sentence = re.sub(r"\s*\((?:fixes|closes|refs)?\s*#\d+\)", "", first_sentence, flags=re.IGNORECASE).strip()
+    first_sentence = re.sub(r"\s*\(#\d+\)", "", first_sentence).strip()
     if len(first_sentence) > 65:
         header_title = first_sentence[:62].rsplit(" ", 1)[0] + "..."
     else:
         header_title = first_sentence or "Engineering Work"
+    if header_title:
+        header_title = header_title[0].upper() + header_title[1:]
 
     source_trace_lines = [
         "- **Source Trace:**",
