@@ -4,6 +4,7 @@
 import argparse
 import datetime
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -12,6 +13,96 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fetch_git import fetch_all_commits
 from fetch_prs import fetch_all_prs, fetch_all_comments_and_reviews
 from fetch_calendar import fetch_all_events
+
+
+MEETING_KEYWORDS = [
+    "meeting", "standup", "sync", "1:1", "catch-up", "q&a",
+    "demo", "retro", "interview", "lunch", "kickoff", "discussion"
+]
+
+
+def is_lunch_block(title: str, st_m: int, et_m: int) -> bool:
+    """Return True if block represents lunch break (12:00 - 13:00)."""
+    if st_m >= 720 and et_m <= 780:
+        return True
+    t_clean = title.strip().lower()
+    if t_clean in ["lunch", "lunch break", "team lunch", "lunch time", "lunch break (12:00-13:00)"]:
+        return True
+    if re.search(r"^(lunch|lunch break|team lunch)\b", t_clean) and (700 <= st_m <= 780):
+        return True
+    return False
+
+
+def is_meeting_block(b: dict) -> bool:
+    """Check if block represents a meeting/event rather than general development."""
+    title = b.get("title", "")
+    if "Commits:" in title or "PRs:" in title or " | " in title:
+        first_segment = title.split(" | ")[0].lower()
+        return any(re.search(rf"\b{re.escape(k)}\b", first_segment) for k in MEETING_KEYWORDS)
+    title_lower = title.lower()
+    return any(re.search(rf"\b{re.escape(k)}\b", title_lower) for k in MEETING_KEYWORDS)
+
+
+def split_time_range(
+    start_m: int,
+    end_m: int,
+    activity_times: list = None,
+    target_duration: int = 60,
+    max_duration: int = 105,
+    min_duration: int = 40
+) -> list:
+    """Split [start_m, end_m] into intervals <= max_duration, snapping cut points to 15-min intervals between activities."""
+    duration = end_m - start_m
+    if duration <= max_duration:
+        return [(start_m, end_m)]
+
+    activity_times = activity_times or []
+    min_k = (duration + max_duration - 1) // max_duration
+    k = max(min_k, round(duration / target_duration))
+
+    cand_15 = [m for m in range(start_m + min_duration, end_m - min_duration + 1) if m % 15 == 0]
+    cand_5 = [m for m in range(start_m + min_duration, end_m - min_duration + 1) if m % 5 == 0]
+    cands = cand_15 if len(cand_15) >= k - 1 else cand_5
+
+    relevant_acts = [a for a in activity_times if start_m <= a <= end_m]
+
+    def min_dist_to_act(t):
+        if not relevant_acts:
+            return 999
+        return min(abs(t - a) for a in relevant_acts)
+
+    cuts = []
+    curr = start_m
+    for i in range(1, k):
+        rem_blocks = k - i
+        ideal = curr + (end_m - curr) / (rem_blocks + 1)
+
+        min_pos = max(curr + min_duration, end_m - rem_blocks * max_duration)
+        max_pos = min(curr + max_duration, end_m - rem_blocks * min_duration)
+
+        valid_cands = [c for c in cands if min_pos <= c <= max_pos]
+        if not valid_cands:
+            valid_cands = [c for c in cand_5 if min_pos <= c <= max_pos]
+            if not valid_cands:
+                valid_cands = [int(ideal)]
+
+        def score(c):
+            dist = min_dist_to_act(c)
+            dist_bonus = min(dist, 25) * 2.0
+            ideal_penalty = abs(c - ideal) * 0.5
+            return dist_bonus - ideal_penalty
+
+        best_cut = max(valid_cands, key=score)
+        cuts.append(best_cut)
+        curr = best_cut
+
+    result = []
+    prev = start_m
+    for c in cuts:
+        result.append((prev, c))
+        prev = c
+    result.append((prev, end_m))
+    return result
 
 
 def time_to_minutes(time_str: str) -> int:
@@ -43,10 +134,9 @@ def assign_items_to_blocks(
     # Filter out calendar events that are lunch blocks
     filtered_blocks = []
     for b in blocks:
-        title_lower = b.get("title", "").lower()
         st_m = time_to_minutes(b.get("start_time", "09:00"))
         et_m = time_to_minutes(b.get("end_time", "12:00"))
-        if "lunch" in title_lower or (st_m >= 720 and et_m <= 780):
+        if is_lunch_block(b.get("title", ""), st_m, et_m):
             continue
         filtered_blocks.append(b)
 
@@ -175,8 +265,14 @@ def assign_items_to_blocks(
                 "comments": []
             })
 
-        # If there are commits occurring significantly after the last scheduled block, add trailing development blocks
+        # If there are commits occurring after the last scheduled block, extend or add trailing development blocks
         last_block_end = time_to_minutes(structured_blocks[-1]["end_time"])
+        max_c_time = max(time_to_minutes(c.get("time", "12:00")) for c in commits)
+        if max_c_time > last_block_end and not is_meeting_block(structured_blocks[-1]):
+            extended_end = min(now_min, max_c_time + 15) if is_today else max_c_time + 15
+            structured_blocks[-1]["end_time"] = f"{extended_end // 60:02d}:{extended_end % 60:02d}"
+            last_block_end = extended_end
+
         late_commits = [c for c in commits if time_to_minutes(c.get("time", "12:00")) > last_block_end + 15]
         if late_commits:
             midday_commits = [c for c in late_commits if time_to_minutes(c.get("time", "12:00")) < 720]
@@ -228,11 +324,7 @@ def assign_items_to_blocks(
         for idx, b in enumerate(structured_blocks):
             b["block_id"] = idx + 1
 
-    MEETING_KEYWORDS = ["meeting", "standup", "sync", "1:1", "catch-up", "q&a", "demo", "retro", "interview", "lunch", "kickoff", "discussion"]
-
-    def is_meeting_block(b: dict) -> bool:
-        title_lower = b.get("title", "").lower()
-        return any(k in title_lower for k in MEETING_KEYWORDS)
+    pr_lookup = {p["number"]: p for p in prs}
 
     for c in commits:
         c_time = time_to_minutes(c.get("time", "12:00"))
@@ -297,8 +389,18 @@ def assign_items_to_blocks(
 
         matched_block["commits"].append(c["subject"])
         matched_block["repos"].add(c["repo"])
+        matched_block.setdefault("commit_objs", []).append(c)
         for p in c.get("prs", []):
             matched_block["prs"].add(p)
+            p_obj = pr_lookup.get(p)
+            if p_obj:
+                matched_block.setdefault("pr_objs", []).append(p_obj)
+            else:
+                matched_block.setdefault("pr_objs", []).append({
+                    "number": p,
+                    "repo": c.get("repo", ""),
+                    "time": c.get("time", "")
+                })
 
     for p in prs:
         num = p["number"]
@@ -356,6 +458,14 @@ def assign_items_to_blocks(
             target_b["prs"].add(num)
             if p_repo:
                 target_b["repos"].add(p_repo)
+            target_b.setdefault("pr_objs", []).append(p)
+        else:
+            for b in structured_blocks:
+                if num in b["prs"]:
+                    existing_nums = [x.get("number") for x in b.get("pr_objs", [])]
+                    if num not in existing_nums:
+                        b.setdefault("pr_objs", []).append(p)
+                    break
 
     for r in reviews:
         r_time_str = r.get("time", "")
@@ -382,6 +492,7 @@ def assign_items_to_blocks(
         target_b["reviews"].append(r["summary"])
         if r_repo:
             target_b["repos"].add(r_repo)
+        target_b.setdefault("review_objs", []).append(r)
 
     for c in comments:
         c_time_str = c.get("time", "")
@@ -408,9 +519,249 @@ def assign_items_to_blocks(
         target_b["comments"].append(c["summary"])
         if c_repo:
             target_b["repos"].add(c_repo)
+        target_b.setdefault("comment_objs", []).append(c)
+
+    final_blocks = []
+    for b in structured_blocks:
+        start_m = time_to_minutes(b["start_time"])
+        end_m = time_to_minutes(b["end_time"])
+        dur = end_m - start_m
+
+        # Clean overgrown title if not a meeting
+        if not is_meeting_block(b):
+            curr_title = b.get("title", "")
+            if len(curr_title) > 60 or " | " in curr_title or "Commits:" in curr_title:
+                b["title"] = "Morning Development" if start_m < 720 else "Afternoon Development"
+
+        num_prs = len(b["prs"])
+        num_commits = len(b["commits"])
+        is_overloaded = (
+            num_prs >= 3
+            or (num_prs + num_commits >= 5)
+            or (num_prs >= 2 and dur >= 150)
+        )
+        should_split = (not is_meeting_block(b)) and (dur > 105) and is_overloaded
+
+        if not should_split:
+            final_blocks.append(b)
+            continue
+
+        activity_times = []
+        for c_obj in b.get("commit_objs", []):
+            t = time_to_minutes(c_obj.get("time", ""))
+            if t > 0:
+                activity_times.append(t)
+        for p_obj in b.get("pr_objs", []):
+            t = time_to_minutes(p_obj.get("time", ""))
+            if t > 0:
+                activity_times.append(t)
+        for r_obj in b.get("review_objs", []):
+            t = time_to_minutes(r_obj.get("time", ""))
+            if t > 0:
+                activity_times.append(t)
+        for c_obj in b.get("comment_objs", []):
+            t = time_to_minutes(c_obj.get("time", ""))
+            if t > 0:
+                activity_times.append(t)
+
+        sub_ranges = split_time_range(
+            start_m, end_m, activity_times,
+            target_duration=60, max_duration=105, min_duration=40
+        )
+
+        if len(sub_ranges) <= 1:
+            final_blocks.append(b)
+            continue
+
+        clean_title = b.get("title", "Work Block")
+        if len(clean_title) > 60 or " | " in clean_title or "Commits:" in clean_title:
+            clean_title = "Morning Development" if start_m < 720 else "Afternoon Development"
+
+        sub_blocks = []
+        for idx, (sub_s, sub_e) in enumerate(sub_ranges):
+            sub_b = {
+                "block_id": 0,
+                "title": clean_title,
+                "start_time": f"{sub_s // 60:02d}:{sub_s % 60:02d}",
+                "end_time": f"{sub_e // 60:02d}:{sub_e % 60:02d}",
+                "source": b.get("source", "calendar"),
+                "entry_id": b.get("entry_id", "") if idx == 0 else "",
+                "project": b.get("project", ""),
+                "status": b.get("status", ""),
+                "commits": [],
+                "prs": set(),
+                "repos": set(),
+                "reviews": [],
+                "comments": []
+            }
+            sub_blocks.append(sub_b)
+
+        # Distribute commits into sub-blocks
+        for c_obj in b.get("commit_objs", []):
+            c_t = time_to_minutes(c_obj.get("time", ""))
+            target_sb = None
+            if c_t > 0:
+                for idx_sb, sb in enumerate(sub_blocks):
+                    sb_s = time_to_minutes(sb["start_time"])
+                    sb_e = time_to_minutes(sb["end_time"])
+                    if idx_sb == len(sub_blocks) - 1:
+                        if sb_s <= c_t <= sb_e:
+                            target_sb = sb
+                            break
+                    else:
+                        if sb_s <= c_t < sb_e:
+                            target_sb = sb
+                            break
+            if not target_sb:
+                def dist_fn(sb):
+                    sb_s = time_to_minutes(sb["start_time"])
+                    sb_e = time_to_minutes(sb["end_time"])
+                    if c_t < sb_s:
+                        return sb_s - c_t
+                    if c_t > sb_e:
+                        return c_t - sb_e
+                    return 0
+                target_sb = min(sub_blocks, key=dist_fn)
+
+            target_sb["commits"].append(c_obj["subject"])
+            if c_obj.get("repo"):
+                target_sb["repos"].add(c_obj["repo"])
+            for p_num in c_obj.get("prs", []):
+                target_sb["prs"].add(p_num)
+
+        # Distribute PRs into sub-blocks
+        for p_obj in b.get("pr_objs", []):
+            p_num = p_obj.get("number")
+            assigned_sb = next((sb for sb in sub_blocks if p_num in sb["prs"]), None)
+            if assigned_sb:
+                if p_obj.get("repo"):
+                    assigned_sb["repos"].add(p_obj["repo"])
+                continue
+
+            p_t = time_to_minutes(p_obj.get("time", ""))
+            target_sb = None
+            if p_t > 0:
+                for idx_sb, sb in enumerate(sub_blocks):
+                    sb_s = time_to_minutes(sb["start_time"])
+                    sb_e = time_to_minutes(sb["end_time"])
+                    if idx_sb == len(sub_blocks) - 1:
+                        if sb_s <= p_t <= sb_e:
+                            target_sb = sb
+                            break
+                    else:
+                        if sb_s <= p_t < sb_e:
+                            target_sb = sb
+                            break
+            if not target_sb:
+                def dist_fn(sb):
+                    sb_s = time_to_minutes(sb["start_time"])
+                    sb_e = time_to_minutes(sb["end_time"])
+                    if p_t < sb_s:
+                        return sb_s - p_t
+                    if p_t > sb_e:
+                        return p_t - sb_e
+                    return 0
+                target_sb = min(sub_blocks, key=dist_fn)
+
+            target_sb["prs"].add(p_num)
+            if p_obj.get("repo"):
+                target_sb["repos"].add(p_obj["repo"])
+
+        # Distribute reviews into sub-blocks
+        for r_obj in b.get("review_objs", []):
+            r_t = time_to_minutes(r_obj.get("time", ""))
+            r_num = r_obj.get("number", "")
+            target_sb = None
+            if r_num:
+                target_sb = next((sb for sb in sub_blocks if r_num in sb["prs"]), None)
+            if not target_sb and r_t > 0:
+                for idx_sb, sb in enumerate(sub_blocks):
+                    sb_s = time_to_minutes(sb["start_time"])
+                    sb_e = time_to_minutes(sb["end_time"])
+                    if idx_sb == len(sub_blocks) - 1:
+                        if sb_s <= r_t <= sb_e:
+                            target_sb = sb
+                            break
+                    else:
+                        if sb_s <= r_t < sb_e:
+                            target_sb = sb
+                            break
+            if not target_sb:
+                target_sb = sub_blocks[0]
+            target_sb["reviews"].append(r_obj["summary"])
+            if r_obj.get("repo"):
+                target_sb["repos"].add(r_obj["repo"])
+
+        # Distribute comments into sub-blocks
+        for c_obj in b.get("comment_objs", []):
+            c_t = time_to_minutes(c_obj.get("time", ""))
+            c_num = c_obj.get("number", "")
+            target_sb = None
+            if c_num:
+                target_sb = next((sb for sb in sub_blocks if c_num in sb["prs"]), None)
+            if not target_sb and c_t > 0:
+                for idx_sb, sb in enumerate(sub_blocks):
+                    sb_s = time_to_minutes(sb["start_time"])
+                    sb_e = time_to_minutes(sb["end_time"])
+                    if idx_sb == len(sub_blocks) - 1:
+                        if sb_s <= c_t <= sb_e:
+                            target_sb = sb
+                            break
+                    else:
+                        if sb_s <= c_t < sb_e:
+                            target_sb = sb
+                            break
+            if not target_sb:
+                target_sb = sub_blocks[0]
+            target_sb["comments"].append(c_obj["summary"])
+            if c_obj.get("repo"):
+                target_sb["repos"].add(c_obj["repo"])
+
+        # Retain any unmatched items from original b
+        for c_subj in b.get("commits", []):
+            if not any(c_subj in sb["commits"] for sb in sub_blocks):
+                sub_blocks[0]["commits"].append(c_subj)
+        for p_num in b.get("prs", []):
+            if not any(p_num in sb["prs"] for sb in sub_blocks):
+                sub_blocks[0]["prs"].add(p_num)
+        for repo in b.get("repos", []):
+            if not any(repo in sb["repos"] for sb in sub_blocks):
+                sub_blocks[0]["repos"].add(repo)
+
+        # Merge adjacent sub-blocks if one is completely empty and merged duration <= 105 min
+        merged_sub_blocks = []
+        for sb in sub_blocks:
+            if not merged_sub_blocks:
+                merged_sub_blocks.append(sb)
+                continue
+            prev_sb = merged_sub_blocks[-1]
+            prev_dur = time_to_minutes(prev_sb["end_time"]) - time_to_minutes(prev_sb["start_time"])
+            curr_dur = time_to_minutes(sb["end_time"]) - time_to_minutes(sb["start_time"])
+            curr_has_items = bool(sb["commits"] or sb["prs"] or sb["reviews"] or sb["comments"])
+            prev_has_items = bool(prev_sb["commits"] or prev_sb["prs"] or prev_sb["reviews"] or prev_sb["comments"])
+
+            if not curr_has_items and (prev_dur + curr_dur <= 105):
+                prev_sb["end_time"] = sb["end_time"]
+            elif not prev_has_items and (prev_dur + curr_dur <= 105):
+                sb["start_time"] = prev_sb["start_time"]
+                merged_sub_blocks[-1] = sb
+            else:
+                merged_sub_blocks.append(sb)
+
+        # Ensure entry_id on first sub-block is preserved and subsequent sub-blocks are empty
+        if b.get("entry_id") and merged_sub_blocks:
+            merged_sub_blocks[0]["entry_id"] = b["entry_id"]
+            for sb in merged_sub_blocks[1:]:
+                sb["entry_id"] = ""
+
+        final_blocks.extend(merged_sub_blocks)
+
+    # Re-index block_id sequentially
+    for idx, b in enumerate(final_blocks):
+        b["block_id"] = idx + 1
 
     result = []
-    for b in structured_blocks:
+    for b in final_blocks:
         item = {
             "block_id": b["block_id"],
             "title": b["title"],
