@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fetch_git import fetch_all_commits
 from fetch_prs import fetch_all_prs, fetch_all_comments_and_reviews
 from fetch_calendar import fetch_all_events
+from config import resolve_target_date
 
 
 MEETING_KEYWORDS = [
@@ -1286,11 +1287,15 @@ def generate_ai_payload(target_date: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="Prepare minimal token payload for AI step.")
-    parser.add_argument("--date", default=datetime.date.today().isoformat(), help="Target date YYYY-MM-DD")
+    parser.add_argument("date_pos", nargs="?", default=None, help="Target date YYYY-MM-DD or 'yesterday' (optional positional argument)")
+    parser.add_argument("--date", default=None, help="Target date YYYY-MM-DD or 'yesterday'")
     parser.add_argument("--pretty", action="store_true", help="Pretty print JSON")
     args = parser.parse_args()
 
-    payload = generate_ai_payload(args.date)
+    raw_date = args.date or args.date_pos
+    target_date = resolve_target_date(raw_date)
+
+    payload = generate_ai_payload(target_date)
     indent = 2 if args.pretty else None
     print(json.dumps(payload, indent=indent))
 

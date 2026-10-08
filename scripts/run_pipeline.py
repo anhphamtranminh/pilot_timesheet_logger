@@ -15,6 +15,7 @@ from prepare_prompt import generate_ai_payload
 from format_entry import format_single_entry
 from save_entry import save_or_update_block_entry
 from track_tokens import record_token_run
+from config import resolve_target_date
 
 
 def fallback_topic_grouping(commit_subjects: list, calendar_title: str, prs: list = None) -> str:
@@ -140,11 +141,15 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
 
 def main():
     parser = argparse.ArgumentParser(description="Run timesheet logger pipeline.")
-    parser.add_argument("--date", default=datetime.date.today().isoformat(), help="Target date YYYY-MM-DD")
+    parser.add_argument("date_pos", nargs="?", default=None, help="Target date YYYY-MM-DD or 'yesterday' (optional positional argument)")
+    parser.add_argument("--date", default=None, help="Target date YYYY-MM-DD or 'yesterday'")
     parser.add_argument("--dry-run", action="store_true", help="Print entries without saving to file")
     parser.add_argument("--topics-json", help="JSON object {block_id: topic_string} or list of topic strings synthesized by AI")
     parser.add_argument("--sync-workspace", action="store_true", help="Sync entry to Gradion Workspace Timesheet app")
     args = parser.parse_args()
+
+    raw_date = args.date or args.date_pos
+    target_date = resolve_target_date(raw_date)
 
     custom_topics = None
     if args.topics_json:
@@ -153,7 +158,7 @@ def main():
         except json.JSONDecodeError as e:
             print(f"[WARN] Failed to parse --topics-json: {e}. Using fallback grouping.", file=sys.stderr)
 
-    run_daily_timesheet(args.date, args.dry_run, custom_topics, args.sync_workspace)
+    run_daily_timesheet(target_date, args.dry_run, custom_topics, args.sync_workspace)
 
 
 if __name__ == "__main__":
