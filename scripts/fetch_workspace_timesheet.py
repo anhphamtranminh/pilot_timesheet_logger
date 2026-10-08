@@ -19,7 +19,7 @@ from pathlib import Path
 # Add parent directory to sys.path to import config
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import find_project_root, load_config
-from format_entry import build_bullet_description
+from format_entry import build_bullet_description, extract_topic_items
 
 GRADION_BASE_URL = "https://workspace.gradion.com"
 SKILL_BUNDLE_VERSION = "1.9.0"
@@ -252,9 +252,39 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
     desc = entry.get("topic_summary") or entry.get("description", "Daily Development")
     commits = entry.get("commit_subjects", [])
     prs = entry.get("prs", [])
-    bullets = build_bullet_description(desc, prs, commits=commits)
-    if bullets:
-        desc = "\n".join(f"- {b}" for b in bullets)
+    reviews = entry.get("reviews", [])
+    comments = entry.get("comments", [])
+    clean_prs = [p.strip() for p in prs if p.strip()]
+    pr_prefix = f"PRs: {', '.join(clean_prs)}" if clean_prs else ""
+
+    items = extract_topic_items(desc)
+    if not items:
+        first = "Daily Development"
+        sub_items = []
+    else:
+        first = items[0]
+        sub_items = items[1:]
+
+    first_line = f"{pr_prefix} | {first}" if pr_prefix else first
+    bullet_items = [f"- {it}" for it in sub_items]
+
+    if commits:
+        clean_commits = [c.strip() for c in commits if c.strip()]
+        if clean_commits:
+            bullet_items.append(f"- Commits: {'; '.join(clean_commits)}")
+    if reviews:
+        clean_reviews = [r.strip() for r in reviews if r.strip()]
+        if clean_reviews:
+            bullet_items.append(f"- Reviews: {'; '.join(clean_reviews)}")
+    if comments:
+        clean_comments = [c.strip() for c in comments if c.strip()]
+        if clean_comments:
+            bullet_items.append(f"- Comments: {'; '.join(clean_comments)}")
+
+    if bullet_items:
+        desc = "\n".join([first_line] + bullet_items)
+    else:
+        desc = first_line
 
     start_time = entry.get("start_time", "09:00")
     end_time = entry.get("end_time", "12:00")

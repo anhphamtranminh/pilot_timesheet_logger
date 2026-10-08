@@ -59,6 +59,12 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
             print(f"      Commits ({len(commits)}): {commits[0]}" + (f" (+{len(commits)-1} more)" if len(commits) > 1 else ""))
         if prs:
             print(f"      PRs: {', '.join(prs)}")
+        reviews = b.get("reviews", [])
+        comments = b.get("comments", [])
+        if reviews:
+            print(f"      Reviews ({len(reviews)}): {reviews[0]}" + (f" (+{len(reviews)-1} more)" if len(reviews) > 1 else ""))
+        if comments:
+            print(f"      Comments ({len(comments)}): {comments[0]}" + (f" (+{len(comments)-1} more)" if len(comments) > 1 else ""))
     print()
 
     # -------------------------------------------------------------
@@ -107,7 +113,9 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
             prs=b.get("prs", []),
             source_title=b.get("title", ""),
             repos=b.get("repos", []),
-            commit_subjects=b.get("commit_subjects", [])
+            commit_subjects=b.get("commit_subjects", []),
+            reviews=b.get("reviews", []),
+            comments=b.get("comments", [])
         )
         formatted_entries.append(md)
 

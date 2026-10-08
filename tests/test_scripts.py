@@ -15,9 +15,10 @@ from config import DEFAULT_CONFIG, load_config
 from fetch_git import extract_prs_from_subject
 from fetch_calendar import parse_ics_content, parse_ics_datetime
 from prepare_prompt import assign_items_to_blocks, time_to_minutes
-from format_entry import format_single_entry
+from format_entry import format_single_entry, format_description, extract_topic_items
 from save_entry import save_or_update_block_entry, get_monthly_log_path
 from track_tokens import record_token_run, get_token_csv_path, generate_ascii_chart, generate_html_dashboard
+from fetch_prs import clean_snippet
 
 
 import tempfile
@@ -116,11 +117,64 @@ END:VCALENDAR"""
         self.assertIn("- **Date:** 2026-10-06", entry_md)
         self.assertIn("- **Start time:** 09:00", entry_md)
         self.assertIn("- **End time:** 12:00", entry_md)
-        self.assertIn("- **Description:**", entry_md)
-        self.assertIn("  - PRs: #101, #102", entry_md)
-        self.assertIn("  - Timesheet pipeline scaffolding and calendar integration", entry_md)
+        # Single concise topic must stay on one line without bullets
+        self.assertIn("- **Description:** PRs: #101, #102 | Timesheet pipeline scaffolding and calendar integration", entry_md)
+        self.assertNotIn("  - PRs:", entry_md)
         self.assertIn("- **Source Trace:**", entry_md)
         self.assertIn("Morning Sprint Block", entry_md)
+
+    def test_format_single_entry_conditional_bullets(self):
+        # Multiple topics -> PRs & primary topic on first line, subtopics as indented bullets
+        entry_md = format_single_entry(
+            date="2026-10-08",
+            start_time="08:50",
+            end_time="10:30",
+            topic_summary="Workspace timesheet integration | Interactive workflow test runner | Comprehensive README documentation",
+            prs=["#11", "#12"]
+        )
+        self.assertIn("- **Description:** PRs: #11, #12 | Workspace timesheet integration", entry_md)
+        self.assertIn("  - Interactive workflow test runner", entry_md)
+        self.assertIn("  - Comprehensive README documentation", entry_md)
+
+        # Without PRs
+        entry_no_prs = format_single_entry(
+            date="2026-10-08",
+            start_time="08:50",
+            end_time="10:30",
+            topic_summary="Workspace timesheet integration; Interactive test runner"
+        )
+        self.assertIn("- **Description:** Workspace timesheet integration", entry_no_prs)
+        self.assertIn("  - Interactive test runner", entry_no_prs)
+
+    def test_format_single_entry_reviews_and_comments(self):
+        entry_md = format_single_entry(
+            date="2026-10-08",
+            start_time="13:00",
+            end_time="15:00",
+            topic_summary="Afternoon development",
+            prs=["#18"],
+            reviews=["PR #18 (APPROVED): Looks good to merge"],
+            comments=["#19 comment by @anhdo-gradion: Ok"]
+        )
+        self.assertIn("  - *Reviews:* PR #18 (APPROVED): Looks good to merge", entry_md)
+        self.assertIn("  - *Comments:* #19 comment by @anhdo-gradion: Ok", entry_md)
+
+        # Omitted when empty
+        entry_empty = format_single_entry(
+            date="2026-10-08",
+            start_time="13:00",
+            end_time="15:00",
+            topic_summary="Afternoon development"
+        )
+        self.assertNotIn("*Reviews:*", entry_empty)
+        self.assertNotIn("*Comments:*", entry_empty)
+
+    def test_clean_snippet(self):
+        self.assertEqual(clean_snippet("Simple text"), "Simple text")
+        long_text = "This is a very long comment text that definitely exceeds the seventy character maximum snippet length"
+        snippet = clean_snippet(long_text, max_len=50)
+        self.assertTrue(len(snippet) <= 50)
+        self.assertTrue(snippet.endswith("..."))
 
     def test_format_header_clean_truncation(self):
         long_topic = "This is an extremely long topic summary that describes multiple architectural improvements without running on forever in the markdown heading"
