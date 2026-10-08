@@ -117,7 +117,6 @@ def fetch_events_from_source(source: str, target_date: str) -> list:
 
 
 def fetch_all_events(target_date: str, include_defaults: bool = False) -> list:
-    """Fetch calendar events / time blocks from Gradion Workspace, iCal, or local .ics."""
     events = []
 
     # 1. First priority: Check Gradion Workspace Timesheet app
@@ -126,7 +125,7 @@ def fetch_all_events(target_date: str, include_defaults: bool = False) -> list:
         ws_blocks = fetch_workspace_timesheet_blocks(target_date)
         if ws_blocks:
             return ws_blocks
-    except Exception as e:
+    except Exception:
         pass
 
     # 2. Second priority: Configured iCal feed or URL
@@ -147,7 +146,7 @@ def fetch_all_events(target_date: str, include_defaults: bool = False) -> list:
     if not events and include_defaults:
         default_blocks = cal_cfg.get("default_blocks", [
             {"title": "Morning Work Block", "start": "09:00", "end": "12:00"},
-            {"title": "Afternoon Work Block", "start": "13:30", "end": "18:00"}
+            {"title": "Afternoon Work Block", "start": "13:30", "end": "17:30"}
         ])
         for b in default_blocks:
             events.append({

@@ -72,6 +72,29 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
             "repos": set()
         })
     elif commits:
+        # Check if there are commits occurring significantly before the first scheduled block
+        first_block_start = time_to_minutes(structured_blocks[0]["start_time"])
+        early_commits = [c for c in commits if time_to_minutes(c.get("time", "12:00")) < first_block_start - 15]
+        if early_commits:
+            min_c_time = min(time_to_minutes(c.get("time", "12:00")) for c in early_commits)
+            start_hh = min_c_time // 60
+            start_mm = min_c_time % 60
+            start_time_str = f"{start_hh:02d}:{start_mm:02d}"
+
+            structured_blocks.insert(0, {
+                "block_id": 0,
+                "title": "Morning Development",
+                "start_time": start_time_str,
+                "end_time": structured_blocks[0]["start_time"],
+                "source": "commits_prs",
+                "entry_id": "",
+                "project": "",
+                "status": "",
+                "commits": [],
+                "prs": set(),
+                "repos": set()
+            })
+
         # If there are commits occurring significantly after the last scheduled block, add a trailing development block
         last_block_end = time_to_minutes(structured_blocks[-1]["end_time"])
         late_commits = [c for c in commits if time_to_minutes(c.get("time", "12:00")) > last_block_end + 30]
@@ -96,7 +119,11 @@ def assign_items_to_blocks(blocks: list, commits: list, prs: list) -> list:
                 "repos": set()
             })
 
-    MEETING_KEYWORDS = ["meeting", "standup", "sync", "1:1", "catch-up", "q&a", "demo", "retro", "interview", "lunch"]
+        # Re-index block_id sequentially
+        for idx, b in enumerate(structured_blocks):
+            b["block_id"] = idx + 1
+
+    MEETING_KEYWORDS = ["meeting", "standup", "sync", "1:1", "catch-up", "q&a", "demo", "retro", "interview", "lunch", "kickoff", "discussion"]
 
     def is_meeting_block(b: dict) -> bool:
         title_lower = b.get("title", "").lower()

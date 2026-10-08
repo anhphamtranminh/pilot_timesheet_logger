@@ -59,6 +59,23 @@ def load_config() -> dict:
         except Exception as e:
             print(f"[WARN] Error reading config.json: {e}", file=sys.stderr)
 
+    local_config_path = root / "config.local.json"
+    if local_config_path.exists():
+        try:
+            with open(local_config_path, "r", encoding="utf-8") as f:
+                local_cfg = json.load(f)
+                for key, val in local_cfg.items():
+                    if isinstance(val, dict) and key in config:
+                        config[key].update(val)
+                    else:
+                        config[key] = val
+        except Exception as e:
+            print(f"[WARN] Error reading config.local.json: {e}", file=sys.stderr)
+
+    env_cal_url = os.environ.get("CALENDAR_ICS_URL", "").strip()
+    if env_cal_url:
+        config.setdefault("calendar", {})["ics_path_or_url"] = env_cal_url
+
     return config
 
 

@@ -14,7 +14,7 @@
   },
   "calendar": {
     "provider": "ics",
-    "ics_path_or_url": "https://calendar.google.com/calendar/ical/anh.phamminh%40gradion.com/private-63a60b78886411b8e1b584d3e10efbc5/basic.ics",
+    "ics_path_or_url": "",
     "default_blocks": [
       {
         "title": "Morning Work Block",
