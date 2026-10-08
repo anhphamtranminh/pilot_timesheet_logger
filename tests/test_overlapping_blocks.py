@@ -266,6 +266,30 @@ class TestOverlappingBlocks(unittest.TestCase):
         self.assertEqual(call_2_args["entryId"], "overlapping-uuid-999")
         self.assertIn("Resolved overlapping block topic", call_2_args["description"])
 
+    @patch("fetch_workspace_timesheet.resolve_gradion_token", return_value="dummy-token")
+    @patch("fetch_workspace_timesheet.make_gradion_request")
+    def test_post_workspace_timesheet_includes_commits_in_description(self, mock_req, mock_token):
+        """post_workspace_timesheet_entry must include both Commits and PRs in the description."""
+        mock_req.return_value = {"isError": False}
+
+        entry = {
+            "date": "2026-10-07",
+            "start_time": "13:00",
+            "end_time": "14:30",
+            "topic_summary": "Architecture refactor",
+            "commit_subjects": ["refactor(skills): remove duplicates (fixes #3)"],
+            "prs": ["#3"],
+            "entry_id": "uuid-entry-5678"
+        }
+
+        success = post_workspace_timesheet_entry(entry)
+        self.assertTrue(success)
+
+        desc = mock_req.call_args[1]["data"]["arguments"]["description"]
+        self.assertIn("Architecture refactor", desc)
+        self.assertIn("Commits: refactor(skills): remove duplicates (fixes #3)", desc)
+        self.assertIn("PRs: #3", desc)
+
 
 if __name__ == "__main__":
     unittest.main()

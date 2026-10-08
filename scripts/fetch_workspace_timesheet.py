@@ -91,6 +91,7 @@ def parse_mcp_entries_text(text: str, target_date: str) -> list:
         row_date, st, et, proj, status, desc, entry_id = m.groups()
         if row_date == target_date:
             clean_title = re.sub(r"\s*\|\s*#[A-Za-z0-9_-]+", "", desc).strip()
+            clean_title = re.sub(r"\s*\|\s*Commits:.*", "", clean_title).strip()
             clean_title = re.sub(r"\s*\|\s*PRs:.*", "", clean_title).strip()
             blocks.append({
                 "title": clean_title,
@@ -240,8 +241,11 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
     task = entry.get("task") or cfg.get("workspace", {}).get("default_task") or "#SE"
 
     desc = entry.get("topic_summary") or entry.get("description", "Daily Development")
+    commits = entry.get("commit_subjects", [])
     prs = entry.get("prs", [])
-    if prs:
+    if commits and "Commits:" not in desc:
+        desc += f" | Commits: {'; '.join(commits)}"
+    if prs and "PRs:" not in desc:
         desc += f" | PRs: {', '.join(prs)}"
 
     start_time = entry.get("start_time", "09:00")
