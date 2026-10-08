@@ -16,7 +16,7 @@ from fetch_calendar import fetch_all_events
 
 
 MEETING_KEYWORDS = [
-    "meeting", "standup", "sync", "1:1", "catch-up", "q&a",
+    "meeting", "standup", "1:1", "catch-up", "q&a",
     "demo", "retro", "interview", "lunch", "kickoff", "discussion"
 ]
 
@@ -35,12 +35,25 @@ def is_lunch_block(title: str, st_m: int, et_m: int) -> bool:
 
 def is_meeting_block(b: dict) -> bool:
     """Check if block represents a meeting/event rather than general development."""
-    title = b.get("title", "")
-    if "Commits:" in title or "PRs:" in title or " | " in title:
-        first_segment = title.split(" | ")[0].lower()
-        return any(re.search(rf"\b{re.escape(k)}\b", first_segment) for k in MEETING_KEYWORDS)
-    title_lower = title.lower()
-    return any(re.search(rf"\b{re.escape(k)}\b", title_lower) for k in MEETING_KEYWORDS)
+    title = b.get("title", "").strip()
+    if re.match(r"^(?:feat|fix|docs|chore|refactor|test|style|perf|build|ci)(?:\([^)]*\))?:", title, re.IGNORECASE):
+        return False
+    if "commits:" in title.lower() or "prs:" in title.lower():
+        return False
+    if "morning development" in title.lower() or "afternoon development" in title.lower():
+        return False
+
+    first_segment = title.split(" | ")[0].strip() if " | " in title else title
+    t_lower = first_segment.lower()
+
+    if any(re.search(rf"\b{re.escape(k)}\b", t_lower) for k in MEETING_KEYWORDS):
+        return True
+
+    if re.search(r"\b(?:team|daily|weekly|bi-weekly|monthly|quick|1:1|all-hands|engineering|design|product|project)?\s*sync\b", t_lower):
+        if not re.search(r"\bsync\s+(?:all\b|workspace\b|branches?\b|to\b|from\b|data\b|code\b|files?\b|commits?\b|prs?\b|timesheet\b|app\b)", t_lower):
+            return True
+
+    return False
 
 
 def split_time_range(
@@ -530,17 +543,27 @@ def assign_items_to_blocks(
         # Clean overgrown title if not a meeting
         if not is_meeting_block(b):
             curr_title = b.get("title", "")
-            if len(curr_title) > 60 or " | " in curr_title or "Commits:" in curr_title:
+            if len(curr_title) > 60 or " | " in curr_title or "Commits:" in curr_title or re.match(r"^(?:feat|fix|docs|chore|refactor|test|style|perf)\b", curr_title, re.IGNORECASE):
                 b["title"] = "Morning Development" if start_m < 720 else "Afternoon Development"
 
         num_prs = len(b["prs"])
         num_commits = len(b["commits"])
+        num_items = num_prs + num_commits
+
+        # A development block should split only if it contains enough items to distribute across multiple sub-blocks
+        # and is not a zero-calendar fallback block:
         is_overloaded = (
-            num_prs >= 3
-            or (num_prs + num_commits >= 5)
-            or (num_prs >= 2 and dur >= 150)
+            (num_prs >= 3 and dur >= 60)
+            or (num_prs >= 2 and num_commits >= 2 and dur >= 60)
+            or (num_prs >= 2 and dur >= 90)
+            or (num_items >= 5 and dur >= 60)
         )
-        should_split = (not is_meeting_block(b)) and (dur > 105) and is_overloaded
+        should_split = (
+            (not is_meeting_block(b))
+            and (b.get("source") != "commits_prs")
+            and (dur > 50)
+            and is_overloaded
+        )
 
         if not should_split:
             final_blocks.append(b)
@@ -564,9 +587,14 @@ def assign_items_to_blocks(
             if t > 0:
                 activity_times.append(t)
 
+        if dur >= 90 and (num_prs >= 4 or num_items >= 6):
+            target_dur, max_dur, min_dur = 35, 45, 30
+        else:
+            target_dur, max_dur, min_dur = 45, 60, 30
+
         sub_ranges = split_time_range(
             start_m, end_m, activity_times,
-            target_duration=60, max_duration=105, min_duration=40
+            target_duration=target_dur, max_duration=max_dur, min_duration=min_dur
         )
 
         if len(sub_ranges) <= 1:
@@ -728,7 +756,7 @@ def assign_items_to_blocks(
             if not any(repo in sb["repos"] for sb in sub_blocks):
                 sub_blocks[0]["repos"].add(repo)
 
-        # Merge adjacent sub-blocks if one is completely empty and merged duration <= 105 min
+        # Merge adjacent sub-blocks if one is completely empty and merged duration <= 60 min
         merged_sub_blocks = []
         for sb in sub_blocks:
             if not merged_sub_blocks:
@@ -740,9 +768,9 @@ def assign_items_to_blocks(
             curr_has_items = bool(sb["commits"] or sb["prs"] or sb["reviews"] or sb["comments"])
             prev_has_items = bool(prev_sb["commits"] or prev_sb["prs"] or prev_sb["reviews"] or prev_sb["comments"])
 
-            if not curr_has_items and (prev_dur + curr_dur <= 105):
+            if not curr_has_items and (prev_dur + curr_dur <= 60):
                 prev_sb["end_time"] = sb["end_time"]
-            elif not prev_has_items and (prev_dur + curr_dur <= 105):
+            elif not prev_has_items and (prev_dur + curr_dur <= 60):
                 sb["start_time"] = prev_sb["start_time"]
                 merged_sub_blocks[-1] = sb
             else:

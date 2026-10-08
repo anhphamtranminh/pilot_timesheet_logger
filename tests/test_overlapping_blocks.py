@@ -356,6 +356,62 @@ class TestOverlappingBlocks(unittest.TestCase):
         self.assertEqual(assigned[0]["start_time"], "13:00")
         self.assertEqual(assigned[0]["end_time"], "15:00")
 
+    def test_split_morning_block_into_smaller_subblocks(self):
+        """A morning development block (08:50 - 10:30) with multiple PRs and commits splits into ~30-45m sub-blocks."""
+        blocks = [
+            {
+                "title": "Morning Development",
+                "start_time": "08:50",
+                "end_time": "10:30",
+                "source": "workspace_timesheet",
+                "entry_id": "morning-entry-id"
+            }
+        ]
+        commits = [
+            {"time": "09:05", "subject": "feat(workspace): include commits and PRs", "repo": "pilot_timesheet", "prs": ["#11"]},
+            {"time": "09:40", "subject": "feat(testing): add interactive test runner", "repo": "pilot_timesheet", "prs": ["#12"]},
+            {"time": "10:10", "subject": "docs: add comprehensive project README", "repo": "pilot_timesheet", "prs": ["#14"]},
+            {"time": "10:25", "subject": "docs: remove emojis and section numbers", "repo": "pilot_timesheet", "prs": ["#16"]}
+        ]
+        prs = [
+            {"number": "#11", "time": "09:10", "repo": "pilot_timesheet"},
+            {"number": "#12", "time": "09:45", "repo": "pilot_timesheet"},
+            {"number": "#13", "time": "10:05", "repo": "pilot_timesheet"},
+            {"number": "#14", "time": "10:12", "repo": "pilot_timesheet"},
+            {"number": "#15", "time": "10:18", "repo": "pilot_timesheet"},
+            {"number": "#16", "time": "10:26", "repo": "pilot_timesheet"}
+        ]
+
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+        self.assertEqual(len(assigned), 3, "Morning block should split into 3 sub-blocks (40m, 30m, 30m)")
+        self.assertEqual(assigned[0]["start_time"], "08:50")
+        self.assertEqual(assigned[0]["end_time"], "09:30")
+        self.assertEqual(assigned[1]["start_time"], "09:30")
+        self.assertEqual(assigned[1]["end_time"], "10:00")
+        self.assertEqual(assigned[2]["start_time"], "10:00")
+        self.assertEqual(assigned[2]["end_time"], "10:30")
+
+        # Entry ID preservation on first sub-block
+        self.assertEqual(assigned[0].get("entry_id"), "morning-entry-id")
+        self.assertFalse(assigned[1].get("entry_id"))
+        self.assertFalse(assigned[2].get("entry_id"))
+
+    def test_format_description_strips_scopes_and_caps_bullets(self):
+        """format_description should strip scoped commit prefixes and cap sub-items at 2 bullets."""
+        from format_entry import format_description
+        raw_topic = (
+            "feat(workspace): include commits and PRs in timesheet entry; "
+            "fix(pipeline): prevent duplicate general engineering activities phrasing; "
+            "docs(logs): record updated daily timesheet entry; "
+            "feat(agy): streamline Antigravity log trigger"
+        )
+        lines = format_description(raw_topic, prs=["#10", "#11"])
+        self.assertEqual(lines[0], "- **Description:** PRs: #10, #11 | Include commits and PRs in timesheet entry")
+        # Sub items should be capped at at most 2 bullets
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(lines[1], "  - Prevent duplicate general engineering activities phrasing")
+        self.assertEqual(lines[2], "  - Record updated daily timesheet entry")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -18,8 +19,14 @@ from track_tokens import record_token_run
 
 def fallback_topic_grouping(commit_subjects: list, calendar_title: str) -> str:
     """Deterministic fallback topic summary if running entirely script-only."""
-    MEETING_KEYWORDS = ["meeting", "standup", "sync", "1:1", "catch-up", "q&a", "demo", "retro", "interview", "lunch", "kickoff", "discussion"]
-    is_meeting = any(k in calendar_title.lower() for k in MEETING_KEYWORDS)
+    MEETING_KEYWORDS = [
+        "meeting", "standup", "1:1", "catch-up", "q&a",
+        "demo", "retro", "interview", "lunch", "kickoff", "discussion"
+    ]
+    title_lower = calendar_title.lower()
+    is_meeting = any(k in title_lower for k in MEETING_KEYWORDS)
+    if "sync" in title_lower and not re.search(r"\bsync\s+(?:all\b|workspace\b|branches?\b|to\b|from\b|data\b|code\b|files?\b|commits?\b|prs?\b|timesheet\b|app\b)", title_lower):
+        is_meeting = True
 
     if not commit_subjects:
         clean_title = calendar_title
@@ -32,18 +39,24 @@ def fallback_topic_grouping(commit_subjects: list, calendar_title: str) -> str:
     clean_items = []
     for s in commit_subjects:
         cleaned = s
-        for prefix in ["feat:", "fix:", "chore:", "docs:", "refactor:", "test:", "style:"]:
-            if cleaned.lower().startswith(prefix):
-                cleaned = cleaned[len(prefix):].strip()
-        clean_items.append(cleaned)
+        cleaned = re.sub(r"^(?:feat|fix|docs|chore|refactor|test|style|perf|build|ci)(?:\([^)]+\))?:\s*", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"\s*\((?:fixes|closes|refs)?\s*#\d+\)", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"\s*\(#\d+\)", "", cleaned).strip()
+        if len(cleaned) > 80:
+            cleaned = cleaned[:77].rsplit(" ", 1)[0] + "..."
+        if cleaned:
+            cleaned = cleaned[0].upper() + cleaned[1:]
+            clean_items.append(cleaned)
 
     distinct = list(dict.fromkeys(clean_items))
     if len(distinct) == 1:
-        commit_summary = distinct[0].capitalize()
-    elif len(distinct) <= 3:
-        commit_summary = ", ".join(distinct[:-1]) + f", and {distinct[-1]}"
+        commit_summary = distinct[0]
+    elif len(distinct) == 2:
+        commit_summary = f"{distinct[0]}, and {distinct[1]}"
+    elif len(distinct) == 3:
+        commit_summary = f"{distinct[0]}, {distinct[1]}, and {distinct[2]}"
     else:
-        commit_summary = ", ".join(distinct[:3]) + f", and {len(distinct) - 3} other tasks"
+        commit_summary = f"{distinct[0]}, {distinct[1]}, and {len(distinct) - 2} other tasks"
 
     if is_meeting:
         return f"{calendar_title}, and {commit_summary}"
