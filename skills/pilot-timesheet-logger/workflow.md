@@ -51,6 +51,7 @@ This document defines the daily execution procedure for the Personal Pilot Times
 ## 4. Execution Commands
 
 ### A. End-to-End Execution with Workspace Synchronization (Standard Workflow)
+Execute directly without preliminary git status, git branch, or exploratory commands:
 ```bash
 python3 scripts/run_pipeline.py --sync-workspace
 ```
