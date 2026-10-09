@@ -554,6 +554,73 @@ class TestOverlappingBlocks(unittest.TestCase):
         self.assertEqual(len(evening_meeting), 1)
         self.assertEqual(evening_meeting[0]["title"], "Team Social & Evening Sync")
 
+    def test_morning_training_meeting_with_leading_and_trailing_gaps(self):
+        """A morning training event should be preserved as a meeting with 09:00-11:00 and 11:45-12:00 work blocks."""
+        blocks = [
+            {
+                "title": "[Intern Academy 2026] Security Awareness Training",
+                "start_time": "11:00",
+                "end_time": "11:45",
+                "source": "calendar"
+            }
+        ]
+        commits = []
+        prs = []
+
+        assigned = assign_items_to_blocks(blocks, commits, prs)
+        self.assertEqual(len(assigned), 3)
+
+        self.assertEqual(assigned[0]["start_time"], "09:00")
+        self.assertEqual(assigned[0]["end_time"], "11:00")
+        self.assertIn("Morning Development", assigned[0]["title"])
+
+        self.assertEqual(assigned[1]["start_time"], "11:00")
+        self.assertEqual(assigned[1]["end_time"], "11:45")
+        self.assertEqual(assigned[1]["title"], "[Intern Academy 2026] Security Awareness Training")
+
+        self.assertEqual(assigned[2]["start_time"], "11:45")
+        self.assertEqual(assigned[2]["end_time"], "12:00")
+        self.assertIn("Morning Development", assigned[2]["title"])
+
+    def test_zero_commit_workday_with_meetings_and_gaps(self):
+        """Today with zero commits but morning training and afternoon 1-on-1 produces all 6 expected blocks."""
+        import datetime
+        today_str = datetime.date.today().isoformat()
+
+        blocks = [
+            {
+                "title": "[Intern Academy 2026] Security Awareness Training",
+                "start_time": "11:00",
+                "end_time": "11:45",
+                "source": "calendar"
+            },
+            {
+                "title": "[Gradion Intern Academy 2026] Weekly 1-on-1 Sync with Supervisor",
+                "start_time": "13:15",
+                "end_time": "13:30",
+                "source": "calendar"
+            }
+        ]
+        commits = []
+        prs = []
+
+        assigned = assign_items_to_blocks(blocks, commits, prs, target_date=today_str)
+        # Should have at least 5 blocks: 09:00-11:00, 11:00-11:45, 11:45-12:00, 13:00-13:15, 13:15-13:30, plus trailing afternoon if afternoon
+        self.assertGreaterEqual(len(assigned), 5)
+
+        # Check morning blocks
+        self.assertEqual(assigned[0]["start_time"], "09:00")
+        self.assertEqual(assigned[0]["end_time"], "11:00")
+        self.assertEqual(assigned[1]["title"], "[Intern Academy 2026] Security Awareness Training")
+        self.assertEqual(assigned[2]["start_time"], "11:45")
+        self.assertEqual(assigned[2]["end_time"], "12:00")
+
+        # Check afternoon leading gap and meeting
+        self.assertEqual(assigned[3]["start_time"], "13:00")
+        self.assertEqual(assigned[3]["end_time"], "13:15")
+        self.assertEqual(assigned[4]["title"], "[Gradion Intern Academy 2026] Weekly 1-on-1 Sync with Supervisor")
+
 
 if __name__ == "__main__":
     unittest.main()
+

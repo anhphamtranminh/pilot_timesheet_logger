@@ -22,10 +22,14 @@ def fallback_topic_grouping(commit_subjects: list, calendar_title: str, prs: lis
     """Deterministic fallback topic summary if running entirely script-only."""
     MEETING_KEYWORDS = [
         "meeting", "standup", "1:1", "catch-up", "q&a",
-        "demo", "retro", "interview", "lunch", "kickoff", "discussion"
+        "demo", "retro", "interview", "lunch", "kickoff", "discussion",
+        "training", "workshop", "webinar", "seminar", "session",
+        "course", "lecture", "orientation", "onboarding", "all-hands",
+        "presentation", "ceremony", "townhall", "office hours", "sync",
+        "sync-up", "grooming", "planning"
     ]
     title_lower = calendar_title.lower()
-    is_meeting = any(k in title_lower for k in MEETING_KEYWORDS)
+    is_meeting = any(re.search(rf"\b{re.escape(k)}\b", title_lower) for k in MEETING_KEYWORDS)
     if "sync" in title_lower and not re.search(r"\bsync\s+(?:all\b|workspace\b|branches?\b|to\b|from\b|data\b|code\b|files?\b|commits?\b|prs?\b|timesheet\b|app\b)", title_lower):
         is_meeting = True
 
