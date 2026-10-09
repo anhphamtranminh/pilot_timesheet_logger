@@ -77,6 +77,9 @@ def fetch_commits_for_repo(repo_path: Path, target_date: str, author_filter: str
             continue
         seen_hashes.add(commit_hash)
 
+        if re.match(r"^(?:WIP on |index on )\b", subject):
+            continue
+
         if author_filter:
             author_lower = author_filter.lower()
             if author_lower not in author_name.lower() and author_lower not in author_email.lower():

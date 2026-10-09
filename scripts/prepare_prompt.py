@@ -18,7 +18,11 @@ from config import resolve_target_date
 
 MEETING_KEYWORDS = [
     "meeting", "standup", "1:1", "catch-up", "q&a",
-    "demo", "retro", "interview", "lunch", "kickoff", "discussion"
+    "demo", "retro", "interview", "lunch", "kickoff", "discussion",
+    "training", "workshop", "webinar", "seminar", "session",
+    "course", "lecture", "orientation", "onboarding", "all-hands",
+    "presentation", "ceremony", "townhall", "office hours", "sync",
+    "sync-up", "grooming", "planning"
 ]
 
 
@@ -293,11 +297,13 @@ def assign_items_to_blocks(
         morning_commits or morning_prs or morning_comments or morning_reviews or morning_cal
         or (unspecified_commits and not afternoon_commits)
         or (unspecified_prs and not afternoon_prs and not afternoon_cal)
+        or (is_today and now_min >= 540)
     )
     has_work_afternoon_activity = (not afternoon_leave) and bool(
         work_afternoon_commits or work_afternoon_prs or work_afternoon_comments or work_afternoon_reviews or work_afternoon_cal
         or (unspecified_commits and not morning_commits)
         or (unspecified_prs and not morning_prs and not morning_cal)
+        or (is_today and now_min >= 780)
     )
     has_evening_activity = bool(
         evening_commits or evening_prs or evening_comments or evening_reviews or evening_cal
@@ -504,69 +510,144 @@ def assign_items_to_blocks(
     else:
         # We have existing calendar / workspace blocks in structured_blocks
         # 1. Morning extension and backfill:
+        new_morning_blocks = []
         if has_morning_activity:
-            morning_blocks = [b for b in structured_blocks if time_to_minutes(b["start_time"]) < 720]
-            if not morning_blocks:
-                structured_blocks.insert(0, {
-                    "block_id": 0,
-                    "title": "Morning Development",
-                    "start_time": "09:00",
-                    "end_time": "12:00",
-                    "source": "commits_prs",
-                    "entry_id": "",
-                    "project": "",
-                    "status": "",
-                    "commits": [],
-                    "prs": set(),
-                    "repos": set(),
-                    "reviews": [],
-                    "comments": []
-                })
-            else:
-                earliest_block = min(morning_blocks, key=lambda b: time_to_minutes(b["start_time"]))
-                earliest_m = time_to_minutes(earliest_block["start_time"])
+            curr_morning = [b for b in structured_blocks if time_to_minutes(b["start_time"]) < 720]
+            if not curr_morning:
                 target_morning_start = 540  # 09:00
                 if morning_commits:
                     earliest_c = min(time_to_minutes(c.get("time", "12:00")) for c in morning_commits if c.get("time"))
                     if earliest_c < target_morning_start:
                         target_morning_start = earliest_c
+                target_morning_end = 720  # 12:00
+                if is_today and now_min < 720:
+                    target_morning_end = min(720, (now_min // 15) * 15)
+                if target_morning_start < target_morning_end and (target_morning_end - target_morning_start) >= 15:
+                    new_morning_blocks.append({
+                        "block_id": 0,
+                        "title": "Morning Development",
+                        "start_time": f"{target_morning_start // 60:02d}:{target_morning_start % 60:02d}",
+                        "end_time": f"{target_morning_end // 60:02d}:{target_morning_end % 60:02d}",
+                        "source": "commits_prs",
+                        "entry_id": "",
+                        "project": "",
+                        "status": "",
+                        "commits": [],
+                        "prs": set(),
+                        "repos": set(),
+                        "reviews": [],
+                        "comments": []
+                    })
+            else:
+                curr_morning.sort(key=lambda b: (time_to_minutes(b["start_time"]), time_to_minutes(b["end_time"])))
 
-                target_start_str = f"{target_morning_start // 60:02d}:{target_morning_start % 60:02d}"
+                # Check if an existing dev block already covers the morning (e.g. 09:00 - 12:00)
+                morning_dev_covers_all = any(
+                    not is_meeting_block(b)
+                    and time_to_minutes(b["start_time"]) <= 540
+                    and time_to_minutes(b["end_time"]) >= 720
+                    for b in curr_morning
+                )
 
-                if earliest_m > target_morning_start:
-                    if not is_meeting_block(earliest_block):
-                        earliest_block["start_time"] = target_start_str
-                    else:
-                        idx = structured_blocks.index(earliest_block)
-                        structured_blocks.insert(idx, {
-                            "block_id": 0,
-                            "title": "Morning Development",
-                            "start_time": target_start_str,
-                            "end_time": earliest_block["start_time"],
-                            "source": "commits_prs",
-                            "entry_id": "",
-                            "project": "",
-                            "status": "",
-                            "commits": [],
-                            "prs": set(),
-                            "repos": set(),
-                            "reviews": [],
-                            "comments": []
-                        })
-                elif earliest_m <= target_morning_start:
-                    early_commits = [c for c in commits if time_to_minutes(c.get("time", "12:00")) < earliest_m - 15]
-                    if early_commits:
-                        min_c_time = min(time_to_minutes(c.get("time", "12:00")) for c in early_commits)
-                        start_time_str = f"{min_c_time // 60:02d}:{min_c_time % 60:02d}"
-                        if not is_meeting_block(earliest_block):
-                            earliest_block["start_time"] = start_time_str
+                if morning_dev_covers_all:
+                    new_morning_blocks = list(curr_morning)
+                else:
+                    # 1. Leading morning gap
+                    earliest_b = curr_morning[0]
+                    earliest_m = time_to_minutes(earliest_b["start_time"])
+                    target_morning_start = 540  # 09:00
+                    if morning_commits:
+                        earliest_c = min(time_to_minutes(c.get("time", "12:00")) for c in morning_commits if c.get("time"))
+                        if earliest_c < target_morning_start:
+                            target_morning_start = earliest_c
+
+                    if earliest_m > target_morning_start and (earliest_m - target_morning_start) >= 15:
+                        if not is_meeting_block(earliest_b):
+                            earliest_b["start_time"] = f"{target_morning_start // 60:02d}:{target_morning_start % 60:02d}"
                         else:
-                            idx = structured_blocks.index(earliest_block)
-                            structured_blocks.insert(idx, {
+                            new_morning_blocks.append({
                                 "block_id": 0,
                                 "title": "Morning Development",
-                                "start_time": start_time_str,
-                                "end_time": earliest_block["start_time"],
+                                "start_time": f"{target_morning_start // 60:02d}:{target_morning_start % 60:02d}",
+                                "end_time": earliest_b["start_time"],
+                                "source": "commits_prs",
+                                "entry_id": "",
+                                "project": "",
+                                "status": "",
+                                "commits": [],
+                                "prs": set(),
+                                "repos": set(),
+                                "reviews": [],
+                                "comments": []
+                            })
+                    elif earliest_m <= target_morning_start:
+                        early_commits = [c for c in commits if time_to_minutes(c.get("time", "12:00")) < earliest_m - 15]
+                        if early_commits:
+                            min_c_time = min(time_to_minutes(c.get("time", "12:00")) for c in early_commits)
+                            start_time_str = f"{min_c_time // 60:02d}:{min_c_time % 60:02d}"
+                            if not is_meeting_block(earliest_b):
+                                earliest_b["start_time"] = start_time_str
+                            else:
+                                new_morning_blocks.append({
+                                    "block_id": 0,
+                                    "title": "Morning Development",
+                                    "start_time": start_time_str,
+                                    "end_time": earliest_b["start_time"],
+                                    "source": "commits_prs",
+                                    "entry_id": "",
+                                    "project": "",
+                                    "status": "",
+                                    "commits": [],
+                                    "prs": set(),
+                                    "repos": set(),
+                                    "reviews": [],
+                                    "comments": []
+                                })
+
+                    # 2. Iterate blocks and intermediate gaps
+                    max_end_so_far = 0
+                    for i, b in enumerate(curr_morning):
+                        b_start = time_to_minutes(b["start_time"])
+                        b_end = time_to_minutes(b["end_time"])
+
+                        if i > 0 and b_start - max_end_so_far >= 15:
+                            new_morning_blocks.append({
+                                "block_id": 0,
+                                "title": "Morning Development",
+                                "start_time": f"{max_end_so_far // 60:02d}:{max_end_so_far % 60:02d}",
+                                "end_time": f"{b_start // 60:02d}:{b_start % 60:02d}",
+                                "source": "commits_prs",
+                                "entry_id": "",
+                                "project": "",
+                                "status": "",
+                                "commits": [],
+                                "prs": set(),
+                                "repos": set(),
+                                "reviews": [],
+                                "comments": []
+                            })
+                        new_morning_blocks.append(b)
+                        max_end_so_far = max(max_end_so_far, b_end)
+
+                    # 3. Trailing morning gap up to 12:00
+                    target_morning_end = 720  # 12:00
+                    if is_today and now_min < 720:
+                        target_morning_end = min(720, (now_min // 15) * 15)
+
+                    last_m_end = max_end_so_far
+                    has_late_morning_commits = any(
+                        time_to_minutes(c.get("time", "12:00")) > last_m_end + 15
+                        for c in morning_commits if c.get("time")
+                    )
+                    all_morning_are_meetings = all(is_meeting_block(b) for b in curr_morning)
+
+                    if target_morning_end - last_m_end >= 15:
+                        if all_morning_are_meetings or has_late_morning_commits:
+                            new_morning_blocks.append({
+                                "block_id": 0,
+                                "title": "Morning Development",
+                                "start_time": f"{last_m_end // 60:02d}:{last_m_end % 60:02d}",
+                                "end_time": f"{target_morning_end // 60:02d}:{target_morning_end % 60:02d}",
                                 "source": "commits_prs",
                                 "entry_id": "",
                                 "project": "",
@@ -578,21 +659,22 @@ def assign_items_to_blocks(
                                 "comments": []
                             })
 
-        # 2. Afternoon extension:
-        if has_afternoon_activity:
-            afternoon_blocks = [b for b in structured_blocks if time_to_minutes(b["end_time"]) > 720]
-            if not afternoon_blocks:
-                if has_work_afternoon_activity:
-                    start_m = 780
-                    end_m = time_to_minutes("18:00")
-                    if work_afternoon_commits:
-                        max_c_time = max(time_to_minutes(c.get("time", "12:00")) for c in work_afternoon_commits if c.get("time"))
-                        if max_c_time > end_m:
-                            end_m = max_c_time
-                    if is_today:
-                        end_m = min(now_min, end_m)
-                    structured_blocks.append({
-                        "block_id": len(structured_blocks) + 1,
+        # 2. Afternoon extension and backfill:
+        new_afternoon_blocks = []
+        if has_work_afternoon_activity:
+            curr_afternoon = [b for b in structured_blocks if 780 <= time_to_minutes(b["start_time"]) < 1080]
+            if not curr_afternoon:
+                start_m = 780
+                end_m = time_to_minutes("18:00")
+                if work_afternoon_commits:
+                    max_c_time = max(time_to_minutes(c.get("time", "12:00")) for c in work_afternoon_commits if c.get("time"))
+                    if max_c_time > end_m:
+                        end_m = max_c_time
+                if is_today:
+                    end_m = min(now_min, end_m)
+                if start_m < end_m and (end_m - start_m) >= 15:
+                    new_afternoon_blocks.append({
+                        "block_id": 0,
                         "title": "Afternoon Development",
                         "start_time": f"{start_m // 60:02d}:{start_m % 60:02d}",
                         "end_time": f"{end_m // 60:02d}:{end_m % 60:02d}",
@@ -607,29 +689,32 @@ def assign_items_to_blocks(
                         "comments": []
                     })
             else:
-                last_block_end = time_to_minutes(structured_blocks[-1]["end_time"])
-                if has_work_afternoon_activity:
-                    work_act_items = [x for x in (work_afternoon_commits + work_afternoon_prs + work_afternoon_reviews + work_afternoon_comments) if x.get("time")]
-                    if work_act_items:
-                        max_c_time = max(time_to_minutes(x.get("time", "12:00")) for x in work_act_items if x.get("time"))
-                        if max_c_time > last_block_end and not is_meeting_block(structured_blocks[-1]):
-                            extended_end = min(now_min, max_c_time + 15) if is_today else max_c_time + 15
-                            structured_blocks[-1]["end_time"] = f"{extended_end // 60:02d}:{extended_end % 60:02d}"
-                            last_block_end = extended_end
+                curr_afternoon.sort(key=lambda b: (time_to_minutes(b["start_time"]), time_to_minutes(b["end_time"])))
 
-                        late_items = [x for x in work_act_items if time_to_minutes(x.get("time", "12:00")) > last_block_end + 15]
-                        if late_items:
-                            start_m = max(780, last_block_end) if last_block_end >= 780 else 780
-                            max_late_time = max(time_to_minutes(x.get("time", "12:00")) for x in late_items)
-                            if is_today:
-                                end_m = min(now_min, max(max_late_time + 15, start_m + 15))
-                            else:
-                                end_m = max(time_to_minutes("18:00"), max_late_time + 15)
-                            structured_blocks.append({
-                                "block_id": len(structured_blocks) + 1,
+                afternoon_dev_covers_all = any(
+                    not is_meeting_block(b)
+                    and time_to_minutes(b["start_time"]) <= 780
+                    and time_to_minutes(b["end_time"]) >= 1080
+                    for b in curr_afternoon
+                )
+
+                if afternoon_dev_covers_all:
+                    new_afternoon_blocks = list(curr_afternoon)
+                else:
+                    # 1. Leading afternoon gap
+                    earliest_a = curr_afternoon[0]
+                    earliest_a_m = time_to_minutes(earliest_a["start_time"])
+                    target_afternoon_start = 780  # 13:00
+
+                    if earliest_a_m > target_afternoon_start and (earliest_a_m - target_afternoon_start) >= 15:
+                        if not is_meeting_block(earliest_a):
+                            earliest_a["start_time"] = f"{target_afternoon_start // 60:02d}:{target_afternoon_start % 60:02d}"
+                        else:
+                            new_afternoon_blocks.append({
+                                "block_id": 0,
                                 "title": "Afternoon Development",
-                                "start_time": f"{start_m // 60:02d}:{start_m % 60:02d}",
-                                "end_time": f"{end_m // 60:02d}:{end_m % 60:02d}",
+                                "start_time": f"{target_afternoon_start // 60:02d}:{target_afternoon_start % 60:02d}",
+                                "end_time": earliest_a["start_time"],
                                 "source": "commits_prs",
                                 "entry_id": "",
                                 "project": "",
@@ -640,78 +725,165 @@ def assign_items_to_blocks(
                                 "reviews": [],
                                 "comments": []
                             })
-                            last_block_end = end_m
 
-            # Handle evening activity (> 18:00) cleanly without bridging gaps
-            if has_evening_activity:
-                eve_items = [c for c in evening_commits if c.get("time")] + \
-                            [p for p in evening_prs if p.get("time")] + \
-                            [r for r in evening_reviews if r.get("time")] + \
-                            [c for c in evening_comments if c.get("time")]
-                uncovered_eve = []
-                for it in eve_items:
-                    t = time_to_minutes(it.get("time", ""))
-                    if not any(time_to_minutes(b["start_time"]) <= t <= time_to_minutes(b["end_time"]) for b in structured_blocks):
-                        uncovered_eve.append(it)
+                    # 2. Intermediate gaps
+                    max_end_so_far = 0
+                    for i, b in enumerate(curr_afternoon):
+                        b_start = time_to_minutes(b["start_time"])
+                        b_end = time_to_minutes(b["end_time"])
 
-                if uncovered_eve:
-                    uncovered_eve.sort(key=lambda x: time_to_minutes(x.get("time", "")))
-                    clusters = []
-                    curr_cluster = [uncovered_eve[0]]
-                    for item in uncovered_eve[1:]:
-                        prev_time = time_to_minutes(curr_cluster[-1].get("time", ""))
-                        curr_time = time_to_minutes(item.get("time", ""))
-                        if curr_time - prev_time <= 45:
-                            curr_cluster.append(item)
-                        else:
-                            clusters.append(curr_cluster)
-                            curr_cluster = [item]
-                    clusters.append(curr_cluster)
+                        if i > 0 and b_start - max_end_so_far >= 15:
+                            new_afternoon_blocks.append({
+                                "block_id": 0,
+                                "title": "Afternoon Development",
+                                "start_time": f"{max_end_so_far // 60:02d}:{max_end_so_far % 60:02d}",
+                                "end_time": f"{b_start // 60:02d}:{b_start % 60:02d}",
+                                "source": "commits_prs",
+                                "entry_id": "",
+                                "project": "",
+                                "status": "",
+                                "commits": [],
+                                "prs": set(),
+                                "repos": set(),
+                                "reviews": [],
+                                "comments": []
+                            })
+                        new_afternoon_blocks.append(b)
+                        max_end_so_far = max(max_end_so_far, b_end)
 
-                    for cluster in clusters:
-                        min_eve = min(time_to_minutes(x.get("time", "")) for x in cluster)
-                        max_eve = max(time_to_minutes(x.get("time", "")) for x in cluster)
-                        current_last_end = max(time_to_minutes(b["end_time"]) for b in structured_blocks) if structured_blocks else 1080
-                        if min_eve <= current_last_end + 30:
-                            if not is_meeting_block(structured_blocks[-1]):
-                                target_end = max(max_eve + 15, current_last_end)
-                                if is_today:
-                                    target_end = min(now_min, target_end)
-                                if target_end > current_last_end:
-                                    structured_blocks[-1]["end_time"] = f"{target_end // 60:02d}:{target_end % 60:02d}"
-                                continue
+                    # 3. Trailing afternoon gap
+                    last_a_end = max_end_so_far
+                    work_act_items = [x for x in (work_afternoon_commits + work_afternoon_prs + work_afternoon_reviews + work_afternoon_comments) if x.get("time")]
+
+                    if is_today:
+                        target_afternoon_end = min(1080, (now_min // 15) * 15)
+                        if work_act_items:
+                            max_c_time = max(time_to_minutes(x.get("time", "12:00")) for x in work_act_items if x.get("time"))
+                            if max_c_time > target_afternoon_end:
+                                target_afternoon_end = min(now_min, max_c_time + 15)
+                        if target_afternoon_end - last_a_end >= 15:
+                            last_a_block = new_afternoon_blocks[-1]
+                            if not is_meeting_block(last_a_block):
+                                last_a_block["end_time"] = f"{target_afternoon_end // 60:02d}:{target_afternoon_end % 60:02d}"
                             else:
-                                start_m = current_last_end
+                                new_afternoon_blocks.append({
+                                    "block_id": 0,
+                                    "title": "Afternoon Development",
+                                    "start_time": f"{last_a_end // 60:02d}:{last_a_end % 60:02d}",
+                                    "end_time": f"{target_afternoon_end // 60:02d}:{target_afternoon_end % 60:02d}",
+                                    "source": "commits_prs",
+                                    "entry_id": "",
+                                    "project": "",
+                                    "status": "",
+                                    "commits": [],
+                                    "prs": set(),
+                                    "repos": set(),
+                                    "reviews": [],
+                                    "comments": []
+                                })
+                    else:
+                        last_a_block = new_afternoon_blocks[-1]
+                        if work_act_items:
+                            max_c_time = max(time_to_minutes(x.get("time", "12:00")) for x in work_act_items if x.get("time"))
+                            if max_c_time > last_a_end and not is_meeting_block(last_a_block):
+                                extended_end = max_c_time + 15
+                                last_a_block["end_time"] = f"{extended_end // 60:02d}:{extended_end % 60:02d}"
+                                last_a_end = extended_end
+
+                            late_items = [x for x in work_act_items if time_to_minutes(x.get("time", "12:00")) > last_a_end + 15]
+                            if late_items:
+                                start_m = max(780, last_a_end) if last_a_end >= 780 else 780
+                                max_late_time = max(time_to_minutes(x.get("time", "12:00")) for x in late_items)
+                                end_m = max(time_to_minutes("18:00"), max_late_time + 15)
+                                new_afternoon_blocks.append({
+                                    "block_id": 0,
+                                    "title": "Afternoon Development",
+                                    "start_time": f"{start_m // 60:02d}:{start_m % 60:02d}",
+                                    "end_time": f"{end_m // 60:02d}:{end_m % 60:02d}",
+                                    "source": "commits_prs",
+                                    "entry_id": "",
+                                    "project": "",
+                                    "status": "",
+                                    "commits": [],
+                                    "prs": set(),
+                                    "repos": set(),
+                                    "reviews": [],
+                                    "comments": []
+                                })
+
+        existing_evening = [b for b in structured_blocks if time_to_minutes(b["start_time"]) >= 1080]
+        structured_blocks = new_morning_blocks + new_afternoon_blocks + existing_evening
+
+        # 3. Handle evening activity (> 18:00) cleanly without bridging gaps
+        if has_evening_activity:
+            eve_items = [c for c in evening_commits if c.get("time")] + \
+                        [p for p in evening_prs if p.get("time")] + \
+                        [r for r in evening_reviews if r.get("time")] + \
+                        [c for c in evening_comments if c.get("time")]
+            uncovered_eve = []
+            for it in eve_items:
+                t = time_to_minutes(it.get("time", ""))
+                if not any(time_to_minutes(b["start_time"]) <= t <= time_to_minutes(b["end_time"]) for b in structured_blocks):
+                    uncovered_eve.append(it)
+
+            if uncovered_eve:
+                uncovered_eve.sort(key=lambda x: time_to_minutes(x.get("time", "")))
+                clusters = []
+                curr_cluster = [uncovered_eve[0]]
+                for item in uncovered_eve[1:]:
+                    prev_time = time_to_minutes(curr_cluster[-1].get("time", ""))
+                    curr_time = time_to_minutes(item.get("time", ""))
+                    if curr_time - prev_time <= 45:
+                        curr_cluster.append(item)
+                    else:
+                        clusters.append(curr_cluster)
+                        curr_cluster = [item]
+                clusters.append(curr_cluster)
+
+                for cluster in clusters:
+                    min_eve = min(time_to_minutes(x.get("time", "")) for x in cluster)
+                    max_eve = max(time_to_minutes(x.get("time", "")) for x in cluster)
+                    current_last_end = max(time_to_minutes(b["end_time"]) for b in structured_blocks) if structured_blocks else 1080
+                    if min_eve <= current_last_end + 30:
+                        if not is_meeting_block(structured_blocks[-1]):
+                            target_end = max(max_eve + 15, current_last_end)
+                            if is_today:
+                                target_end = min(now_min, target_end)
+                            if target_end > current_last_end:
+                                structured_blocks[-1]["end_time"] = f"{target_end // 60:02d}:{target_end % 60:02d}"
+                            continue
                         else:
-                            start_m = max(1080, ((min_eve - 15) // 15) * 15)
+                            start_m = current_last_end
+                    else:
+                        start_m = max(1080, ((min_eve - 15) // 15) * 15)
 
-                        end_m = max(max_eve + 15, start_m + 15)
-                        if is_today:
-                            end_m = min(now_min, end_m)
+                    end_m = max(max_eve + 15, start_m + 15)
+                    if is_today:
+                        end_m = min(now_min, end_m)
 
-                        if start_m < end_m:
-                            structured_blocks.append({
-                                "block_id": len(structured_blocks) + 1,
-                                "title": "Evening Development" if start_m >= 1080 else "Afternoon Development",
-                                "start_time": f"{start_m // 60:02d}:{start_m % 60:02d}",
-                                "end_time": f"{end_m // 60:02d}:{end_m % 60:02d}",
-                                "source": "commits_prs",
-                                "entry_id": "",
-                                "project": "",
-                                "status": "",
-                                "commits": [],
-                                "prs": set(),
-                                "repos": set(),
-                                "reviews": [],
-                                "comments": []
-                            })
+                    if start_m < end_m:
+                        structured_blocks.append({
+                            "block_id": len(structured_blocks) + 1,
+                            "title": "Evening Development" if start_m >= 1080 else "Afternoon Development",
+                            "start_time": f"{start_m // 60:02d}:{start_m % 60:02d}",
+                            "end_time": f"{end_m // 60:02d}:{end_m % 60:02d}",
+                            "source": "commits_prs",
+                            "entry_id": "",
+                            "project": "",
+                            "status": "",
+                            "commits": [],
+                            "prs": set(),
+                            "repos": set(),
+                            "reviews": [],
+                            "comments": []
+                        })
 
-        # Sanity check: keep only blocks with valid duration
-        structured_blocks = [b for b in structured_blocks if time_to_minutes(b["start_time"]) < time_to_minutes(b["end_time"])]
+    # Sanity check: keep only blocks with valid duration
+    structured_blocks = [b for b in structured_blocks if time_to_minutes(b["start_time"]) < time_to_minutes(b["end_time"])]
 
-        # Re-index block_id sequentially
-        for idx, b in enumerate(structured_blocks):
-            b["block_id"] = idx + 1
+    # Re-index block_id sequentially
+    for idx, b in enumerate(structured_blocks):
+        b["block_id"] = idx + 1
 
     pr_lookup = {p["number"]: p for p in prs}
 
