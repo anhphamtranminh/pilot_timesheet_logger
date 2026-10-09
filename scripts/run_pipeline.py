@@ -18,7 +18,7 @@ from track_tokens import record_token_run
 from config import resolve_target_date
 
 
-def fallback_topic_grouping(commit_subjects: list, calendar_title: str, prs: list = None) -> str:
+def fallback_topic_grouping(commit_subjects: list, calendar_title: str, prs: list = None, issues: list = None, issue_objs: list = None) -> str:
     """Deterministic fallback topic summary if running entirely script-only."""
     MEETING_KEYWORDS = [
         "meeting", "standup", "1:1", "catch-up", "q&a",
@@ -42,6 +42,25 @@ def fallback_topic_grouping(commit_subjects: list, calendar_title: str, prs: lis
         if prs:
             formatted_prs = [p if str(p).startswith("#") else f"#{p}" for p in prs]
             return f"Problem investigation and task development for {', '.join(formatted_prs)}"
+        if issue_objs:
+            titles = []
+            for io in issue_objs:
+                t = io.get("title", "").strip()
+                if t:
+                    t_clean = re.sub(r"^(?:feat|fix|docs|chore|refactor|test|style|perf|build|ci)(?:\([^)]+\))?:\s*", "", t, flags=re.IGNORECASE).strip()
+                    if t_clean:
+                        t_clean = t_clean[0].upper() + t_clean[1:]
+                    titles.append(t_clean or t)
+            distinct_titles = list(dict.fromkeys(titles))
+            if len(distinct_titles) == 1:
+                return distinct_titles[0]
+            elif len(distinct_titles) == 2:
+                return f"{distinct_titles[0]}, and {distinct_titles[1]}"
+            elif len(distinct_titles) > 2:
+                return f"{distinct_titles[0]}, {distinct_titles[1]}, and {len(distinct_titles) - 2} other issues"
+        if issues:
+            formatted_issues = [i if str(i).startswith("#") else f"#{i}" for i in issues]
+            return f"Problem investigation and task development for {', '.join(formatted_issues)}"
         return f"{clean_title} and general engineering activities"
 
     clean_items = []
@@ -85,9 +104,20 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
     print(f"\n[INFO] Processing Timesheet for {target_date}...")
     print(f"[INFO] Found {len(blocks)} time block(s). Estimated AI prompt tokens: {payload['estimated_input_tokens']}\n")
 
+    all_day_repos = set()
+    for b in blocks:
+        for r in b.get("repos", []):
+            if r:
+                all_day_repos.add(r)
+
+    is_multi_project = (len(all_day_repos) > 1) or any(r not in ("pilot_timesheet", "pilot_timesheet_logger") for r in all_day_repos)
+
     for idx, b in enumerate(blocks):
         commits = b.get("commit_subjects", [])
         prs = b.get("prs", [])
+        issues = b.get("issues", [])
+        issue_objs = b.get("issue_objs", [])
+        discussions = b.get("discussions", [])
         cal_title = b.get("title", "Work Block")
 
         block_id_str = str(b.get("block_id", idx + 1))
@@ -96,7 +126,16 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
         elif isinstance(custom_topics, list) and idx < len(custom_topics):
             topic_summary = custom_topics[idx]
         else:
-            topic_summary = fallback_topic_grouping(commits, cal_title, prs=prs)
+            topic_summary = fallback_topic_grouping(commits, cal_title, prs=prs, issues=issues, issue_objs=issue_objs)
+
+        block_project = ""
+        b_proj = b.get("project", "")
+        if b_proj and not any(k in b_proj for k in ["Gradion Intern Academy", "Internal Project"]):
+            block_project = b_proj
+        elif is_multi_project:
+            block_repos = b.get("repos", [])
+            if block_repos:
+                block_project = ", ".join(sorted(block_repos))
 
         entry_dict = {
             "date": target_date,
@@ -104,16 +143,18 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
             "end_time": b.get("end_time", "12:00"),
             "topic_summary": topic_summary,
             "prs": prs,
+            "issues": issues,
             "source_title": cal_title,
             "repos": b.get("repos", []),
             "commit_subjects": commits,
             "reviews": b.get("reviews", []),
-            "comments": b.get("comments", [])
+            "comments": b.get("comments", []),
+            "discussions": discussions
         }
         if b.get("entry_id"):
             entry_dict["entry_id"] = b["entry_id"]
-        if b.get("project"):
-            entry_dict["project"] = b["project"]
+        if block_project:
+            entry_dict["project"] = block_project
 
         formatted_entries.append(entry_dict)
 
@@ -133,11 +174,14 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
                 end_time=entry_dict["end_time"],
                 topic_summary=entry_dict["topic_summary"],
                 prs=entry_dict["prs"],
+                issues=entry_dict.get("issues", []),
+                project=entry_dict.get("project", ""),
                 source_title=entry_dict["source_title"],
                 repos=entry_dict["repos"],
                 commit_subjects=entry_dict["commit_subjects"],
                 reviews=entry_dict["reviews"],
-                comments=entry_dict["comments"]
+                comments=entry_dict["comments"],
+                discussions=entry_dict.get("discussions", [])
             ))
 
     return formatted_entries

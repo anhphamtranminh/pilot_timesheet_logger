@@ -11,7 +11,7 @@ from pathlib import Path
 # Add parent directory to sys.path to import modules
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fetch_git import fetch_all_commits
-from fetch_prs import fetch_all_prs, fetch_all_comments_and_reviews
+from fetch_prs import fetch_all_prs, fetch_all_comments_and_reviews, fetch_all_issues, summarize_discussions
 from fetch_calendar import fetch_all_events
 from config import resolve_target_date
 
@@ -183,11 +183,13 @@ def assign_items_to_blocks(
     prs: list,
     target_date: str = None,
     comments: list = None,
-    reviews: list = None
+    reviews: list = None,
+    issues: list = None
 ) -> list:
-    """Assign commits, PRs, comments, and reviews to the time blocks based on timestamps and block metadata."""
+    """Assign commits, PRs, comments, reviews, and issues to the time blocks based on timestamps and block metadata."""
     comments = comments or []
     reviews = reviews or []
+    issues = issues or []
     is_today = (target_date == datetime.date.today().isoformat())
     now_dt = datetime.datetime.now()
     now_min = now_dt.hour * 60 + now_dt.minute
@@ -275,6 +277,11 @@ def assign_items_to_blocks(
     evening_prs = [p for p in prs if time_to_minutes(p.get("time", "")) > 1080]
     afternoon_prs = [p for p in prs if time_to_minutes(p.get("time", "")) >= 720]
 
+    morning_issues = [i for i in issues if 0 < time_to_minutes(i.get("time", "")) < 720]
+    work_afternoon_issues = [i for i in issues if 720 <= time_to_minutes(i.get("time", "")) <= 1080]
+    evening_issues = [i for i in issues if time_to_minutes(i.get("time", "")) > 1080]
+    afternoon_issues = [i for i in issues if time_to_minutes(i.get("time", "")) >= 720]
+
     morning_comments = [c for c in comments if 0 < time_to_minutes(c.get("time", "")) < 720]
     work_afternoon_comments = [c for c in comments if 720 <= time_to_minutes(c.get("time", "")) <= 1080]
     evening_comments = [c for c in comments if time_to_minutes(c.get("time", "")) > 1080]
@@ -294,19 +301,19 @@ def assign_items_to_blocks(
     unspecified_prs = [p for p in prs if not time_to_minutes(p.get("time", ""))]
 
     has_morning_activity = (not morning_leave) and bool(
-        morning_commits or morning_prs or morning_comments or morning_reviews or morning_cal
+        morning_commits or morning_prs or morning_issues or morning_comments or morning_reviews or morning_cal
         or (unspecified_commits and not afternoon_commits)
         or (unspecified_prs and not afternoon_prs and not afternoon_cal)
         or (is_today and now_min >= 540)
     )
     has_work_afternoon_activity = (not afternoon_leave) and bool(
-        work_afternoon_commits or work_afternoon_prs or work_afternoon_comments or work_afternoon_reviews or work_afternoon_cal
+        work_afternoon_commits or work_afternoon_prs or work_afternoon_issues or work_afternoon_comments or work_afternoon_reviews or work_afternoon_cal
         or (unspecified_commits and not morning_commits)
         or (unspecified_prs and not morning_prs and not morning_cal)
         or (is_today and now_min >= 780)
     )
     has_evening_activity = bool(
-        evening_commits or evening_prs or evening_comments or evening_reviews or evening_cal
+        evening_commits or evening_prs or evening_issues or evening_comments or evening_reviews or evening_cal
     )
     has_afternoon_activity = has_work_afternoon_activity or has_evening_activity
 
@@ -1082,6 +1089,48 @@ def assign_items_to_blocks(
             target_b["repos"].add(c_repo)
         target_b.setdefault("comment_objs", []).append(c)
 
+    for iss in issues:
+        iss_num = iss.get("number", "")
+        already_attached = any(iss_num in b.get("issues", set()) for b in structured_blocks)
+        if not already_attached:
+            iss_time_str = iss.get("time", "")
+            iss_time = time_to_minutes(iss_time_str) if iss_time_str else None
+            iss_repo = iss.get("repo", "")
+            target_b = None
+
+            if iss_time is not None and iss_time > 0:
+                candidates = [b for b in structured_blocks if time_to_minutes(b["start_time"]) <= iss_time <= time_to_minutes(b["end_time"])]
+                if candidates:
+                    target_b = candidates[0]
+
+            if not target_b and iss_repo:
+                matching_blocks = [b for b in structured_blocks if iss_repo in b.get("repos", set())]
+                if matching_blocks:
+                    target_b = next((b for b in matching_blocks if not b.get("issues")), matching_blocks[0])
+
+            if not target_b and iss_num:
+                for b in structured_blocks:
+                    c_summaries = " ".join(b.get("comments", []))
+                    if iss_num in c_summaries or iss_num.lower() in b.get("title", "").lower():
+                        target_b = b
+                        break
+
+            if not target_b:
+                non_meetings = [b for b in structured_blocks if not is_meeting_block(b)]
+                target_b = non_meetings[0] if non_meetings else structured_blocks[0]
+
+            target_b.setdefault("issues", set()).add(iss_num)
+            if iss_repo:
+                target_b["repos"].add(iss_repo)
+            target_b.setdefault("issue_objs", []).append(iss)
+        else:
+            for b in structured_blocks:
+                if iss_num in b.get("issues", set()):
+                    existing_nums = [x.get("number") for x in b.get("issue_objs", [])]
+                    if iss_num not in existing_nums:
+                        b.setdefault("issue_objs", []).append(iss)
+                    break
+
     # Propagate morning PRs and repos to empty morning development blocks
     morning_prs_set = set()
     morning_repos_set = set()
@@ -1145,7 +1194,8 @@ def assign_items_to_blocks(
 
         num_prs = len(b["prs"])
         num_commits = len(b["commits"])
-        num_items = num_prs + num_commits
+        num_issues = len(b.get("issues", []))
+        num_items = num_prs + num_commits + num_issues
 
         # A development block should split only if it contains enough items to distribute across multiple sub-blocks
         # and is not a zero-calendar fallback block:
@@ -1153,7 +1203,9 @@ def assign_items_to_blocks(
             (num_prs >= 3 and dur >= 60)
             or (num_prs >= 2 and num_commits >= 2 and dur >= 60)
             or (num_prs >= 2 and dur >= 90)
+            or (num_issues >= 2 and dur >= 90)
             or (num_items >= 5 and dur >= 60)
+            or (num_items >= 3 and dur >= 90)
         )
         should_split = (
             (not is_meeting_block(b))
@@ -1181,6 +1233,10 @@ def assign_items_to_blocks(
                 activity_times.append(t)
         for c_obj in b.get("comment_objs", []):
             t = time_to_minutes(c_obj.get("time", ""))
+            if t > 0:
+                activity_times.append(t)
+        for iss_obj in b.get("issue_objs", []):
+            t = time_to_minutes(iss_obj.get("time", ""))
             if t > 0:
                 activity_times.append(t)
 
@@ -1215,9 +1271,14 @@ def assign_items_to_blocks(
                 "status": b.get("status", ""),
                 "commits": [],
                 "prs": set(),
+                "issues": set(),
                 "repos": set(),
                 "reviews": [],
-                "comments": []
+                "comments": [],
+                "issue_objs": [],
+                "comment_objs": [],
+                "review_objs": [],
+                "commit_objs": []
             }
             sub_blocks.append(sub_b)
 
@@ -1339,8 +1400,39 @@ def assign_items_to_blocks(
             if not target_sb:
                 target_sb = sub_blocks[0]
             target_sb["comments"].append(c_obj["summary"])
+            target_sb.setdefault("comment_objs", []).append(c_obj)
             if c_obj.get("repo"):
                 target_sb["repos"].add(c_obj["repo"])
+
+        # Distribute issues into sub-blocks
+        for iss_obj in b.get("issue_objs", []):
+            iss_num = iss_obj.get("number", "")
+            assigned_sb = next((sb for sb in sub_blocks if iss_num in sb.get("issues", set())), None)
+            if assigned_sb:
+                if iss_obj.get("repo"):
+                    assigned_sb["repos"].add(iss_obj["repo"])
+                continue
+
+            iss_t = time_to_minutes(iss_obj.get("time", ""))
+            target_sb = None
+            if iss_t > 0:
+                for idx_sb, sb in enumerate(sub_blocks):
+                    sb_s = time_to_minutes(sb["start_time"])
+                    sb_e = time_to_minutes(sb["end_time"])
+                    if idx_sb == len(sub_blocks) - 1:
+                        if sb_s <= iss_t <= sb_e:
+                            target_sb = sb
+                            break
+                    else:
+                        if sb_s <= iss_t < sb_e:
+                            target_sb = sb
+                            break
+            if not target_sb:
+                target_sb = sub_blocks[0]
+            target_sb.setdefault("issues", set()).add(iss_num)
+            target_sb.setdefault("issue_objs", []).append(iss_obj)
+            if iss_obj.get("repo"):
+                target_sb["repos"].add(iss_obj["repo"])
 
         # Retain any unmatched items from original b
         for c_subj in b.get("commits", []):
@@ -1349,6 +1441,9 @@ def assign_items_to_blocks(
         for p_num in b.get("prs", []):
             if not any(p_num in sb["prs"] for sb in sub_blocks):
                 sub_blocks[0]["prs"].add(p_num)
+        for iss_num in b.get("issues", []):
+            if not any(iss_num in sb.get("issues", set()) for sb in sub_blocks):
+                sub_blocks[0].setdefault("issues", set()).add(iss_num)
         for repo in b.get("repos", []):
             if not any(repo in sb["repos"] for sb in sub_blocks):
                 sub_blocks[0]["repos"].add(repo)
@@ -1362,8 +1457,8 @@ def assign_items_to_blocks(
             prev_sb = merged_sub_blocks[-1]
             prev_dur = time_to_minutes(prev_sb["end_time"]) - time_to_minutes(prev_sb["start_time"])
             curr_dur = time_to_minutes(sb["end_time"]) - time_to_minutes(sb["start_time"])
-            curr_has_items = bool(sb["commits"] or sb["prs"] or sb["reviews"] or sb["comments"])
-            prev_has_items = bool(prev_sb["commits"] or prev_sb["prs"] or prev_sb["reviews"] or prev_sb["comments"])
+            curr_has_items = bool(sb["commits"] or sb["prs"] or sb.get("issues") or sb["reviews"] or sb["comments"])
+            prev_has_items = bool(prev_sb["commits"] or prev_sb["prs"] or prev_sb.get("issues") or prev_sb["reviews"] or prev_sb["comments"])
 
             if not curr_has_items and (prev_dur + curr_dur <= 60):
                 prev_sb["end_time"] = sb["end_time"]
@@ -1387,7 +1482,7 @@ def assign_items_to_blocks(
     filtered_blocks = []
     for b in final_blocks:
         b_st = time_to_minutes(b["start_time"])
-        has_activity = bool(b.get("commits") or b.get("prs") or b.get("reviews") or b.get("comments"))
+        has_activity = bool(b.get("commits") or b.get("prs") or b.get("issues") or b.get("reviews") or b.get("comments"))
         is_external_or_meeting = is_meeting_block(b) or b.get("source") in ("calendar", "workspace_timesheet") or bool(b.get("entry_id"))
         if b_st >= 1080 and not has_activity and not is_external_or_meeting:
             continue
@@ -1397,6 +1492,10 @@ def assign_items_to_blocks(
     # Re-index block_id sequentially
     for idx, b in enumerate(final_blocks):
         b["block_id"] = idx + 1
+
+    for b in final_blocks:
+        comment_objs = b.get("comment_objs", [])
+        b["discussions"] = summarize_discussions(comment_objs)
 
     result = []
     for b in final_blocks:
@@ -1408,9 +1507,12 @@ def assign_items_to_blocks(
             "source": b.get("source", "calendar"),
             "repos": sorted(list(b["repos"])),
             "prs": sorted(list(b["prs"])),
+            "issues": sorted(list(b.get("issues", set()))),
             "commit_subjects": b["commits"],
             "reviews": b.get("reviews", []),
-            "comments": b.get("comments", [])
+            "comments": b.get("comments", []),
+            "discussions": b.get("discussions", []),
+            "issue_objs": b.get("issue_objs", [])
         }
         if b.get("entry_id"):
             item["entry_id"] = b["entry_id"]
@@ -1429,20 +1531,29 @@ def generate_ai_payload(target_date: str) -> dict:
     prs = fetch_all_prs(target_date)
     events = fetch_all_events(target_date)
     comments, reviews = fetch_all_comments_and_reviews(target_date)
+    issues = fetch_all_issues(target_date)
 
     blocks = assign_items_to_blocks(
-        events, commits, prs, target_date=target_date, comments=comments, reviews=reviews
+        events, commits, prs, target_date=target_date, comments=comments, reviews=reviews, issues=issues
     )
 
     # Minimal payload passed to LLM for topic synthesis
     ai_view = []
     for b in blocks:
         item = {"id": b["block_id"], "title": b["title"]}
+        if b.get("repos"):
+            item["repos"] = b["repos"]
         if b.get("commit_subjects"):
             item["commits"] = b["commit_subjects"]
+        if b.get("issue_objs"):
+            item["issues"] = [f"{i['number']}: {i.get('title', '')}" for i in b["issue_objs"]]
+        elif b.get("issues"):
+            item["issues"] = b["issues"]
         if b.get("reviews"):
             item["reviews"] = b["reviews"]
-        if b.get("comments"):
+        if b.get("discussions"):
+            item["discussions"] = b["discussions"]
+        elif b.get("comments"):
             item["comments"] = b["comments"]
         ai_view.append(item)
 
