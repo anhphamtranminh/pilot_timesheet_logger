@@ -60,11 +60,17 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
             print(f"      Commits ({len(commits)}): {commits[0]}" + (f" (+{len(commits)-1} more)" if len(commits) > 1 else ""))
         if prs:
             print(f"      PRs: {', '.join(prs)}")
+        issues = b.get("issues", [])
+        if issues:
+            print(f"      Issues: {', '.join(issues)}")
         reviews = b.get("reviews", [])
         comments = b.get("comments", [])
+        discussions = b.get("discussions", [])
         if reviews:
             print(f"      Reviews ({len(reviews)}): {reviews[0]}" + (f" (+{len(reviews)-1} more)" if len(reviews) > 1 else ""))
-        if comments:
+        if discussions:
+            print(f"      Discussions ({len(discussions)}): {discussions[0]}" + (f" (+{len(discussions)-1} more)" if len(discussions) > 1 else ""))
+        elif comments:
             print(f"      Comments ({len(comments)}): {comments[0]}" + (f" (+{len(comments)-1} more)" if len(comments) > 1 else ""))
     print()
 
@@ -82,6 +88,13 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
     # Step 3: AI Topic Synthesis
     # -------------------------------------------------------------
     print(f"{BOLD}{BLUE}[Step 3/5] AI Topic Synthesis (Judgment Step)...{RESET}")
+    all_day_repos = set()
+    for b in blocks:
+        for r in b.get("repos", []):
+            if r:
+                all_day_repos.add(r)
+    is_multi_project = (len(all_day_repos) > 1) or any(r not in ("pilot_timesheet", "pilot_timesheet_logger") for r in all_day_repos)
+
     synthesized_topics = {}
     for idx, b in enumerate(blocks):
         b_id = str(b.get("block_id", idx + 1))
@@ -91,7 +104,7 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
         if custom_topics and (b_id in custom_topics or b.get("block_id") in custom_topics):
             topic = custom_topics.get(b_id) or custom_topics.get(b.get("block_id"))
         else:
-            topic = fallback_topic_grouping(commits, cal_title, prs=b.get("prs", []))
+            topic = fallback_topic_grouping(commits, cal_title, prs=b.get("prs", []), issues=b.get("issues", []), issue_objs=b.get("issue_objs", []))
 
         synthesized_topics[b_id] = topic
         print(f"  • Block {b_id} ({b.get('start_time')} - {b.get('end_time')}):")
@@ -106,17 +119,29 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
     for idx, b in enumerate(blocks):
         b_id = str(b.get("block_id", idx + 1))
         topic = synthesized_topics[b_id]
+        block_project = ""
+        b_proj = b.get("project", "")
+        if b_proj and not any(k in b_proj for k in ["Gradion Intern Academy", "Internal Project"]):
+            block_project = b_proj
+        elif is_multi_project:
+            block_repos = b.get("repos", [])
+            if block_repos:
+                block_project = ", ".join(sorted(block_repos))
+
         md = format_single_entry(
             date=target_date,
             start_time=b.get("start_time", "09:00"),
             end_time=b.get("end_time", "12:00"),
             topic_summary=topic,
             prs=b.get("prs", []),
+            issues=b.get("issues", []),
+            project=block_project,
             source_title=b.get("title", ""),
             repos=b.get("repos", []),
             commit_subjects=b.get("commit_subjects", []),
             reviews=b.get("reviews", []),
-            comments=b.get("comments", [])
+            comments=b.get("comments", []),
+            discussions=b.get("discussions", [])
         )
         formatted_entries.append(md)
 

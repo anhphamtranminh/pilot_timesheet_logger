@@ -18,7 +18,8 @@ from prepare_prompt import assign_items_to_blocks, time_to_minutes
 from format_entry import format_single_entry, format_description, extract_topic_items
 from save_entry import save_or_update_block_entry, get_monthly_log_path
 from track_tokens import record_token_run, get_token_csv_path, generate_ascii_chart, generate_html_dashboard
-from fetch_prs import clean_snippet
+from fetch_prs import clean_snippet, summarize_discussions
+from run_pipeline import fallback_topic_grouping
 
 
 import tempfile
@@ -236,6 +237,54 @@ END:VCALENDAR"""
             html_text = out_path.read_text(encoding="utf-8")
             self.assertIn("2026-10-06", html_text)
             self.assertIn("230", html_text)
+
+    def test_summarize_discussions(self):
+        sample_comments = [
+            {"number": "#2", "title": "Research server topics", "summary": "@alice: Flashcard is good"},
+            {"number": "#2", "title": "Research server topics", "summary": "@bob: What about python?"},
+            {"number": "#10", "title": "Setup repository", "summary": "@charlie: LGTM"}
+        ]
+        discussions = summarize_discussions(sample_comments)
+        self.assertEqual(len(discussions), 2)
+        self.assertIn("#2: Research server topics (2 comments)", discussions)
+        self.assertIn("#10: Setup repository (1 comment)", discussions)
+
+    def test_format_single_entry_with_project_and_issues(self):
+        md = format_single_entry(
+            date="2026-10-09",
+            start_time="15:15",
+            end_time="16:15",
+            topic_summary="Research and planning: Select server topic and product domain",
+            prs=[],
+            issues=["#2"],
+            project="mcp-standard-research",
+            source_title="Afternoon Development",
+            repos=["mcp-standard-research"],
+            commit_subjects=[],
+            reviews=[],
+            comments=[],
+            discussions=["#2: Research and planning: Select server topic and product domain (5 comments)"]
+        )
+        self.assertIn("### 2026-10-09 | 15:15 - 16:15 | [mcp-standard-research] Research and planning: Select server topic and product domain", md)
+        self.assertIn("- **Description:** [mcp-standard-research] Issues: #2 | Research and planning: Select server topic and product domain", md)
+        self.assertIn("- *Issues:* #2", md)
+        self.assertIn("- *Discussions:* #2: Research and planning: Select server topic and product domain (5 comments)", md)
+
+    def test_fallback_topic_grouping_with_issues(self):
+        topic = fallback_topic_grouping(
+            commit_subjects=[],
+            calendar_title="Afternoon Development",
+            prs=[],
+            issues=["#2"],
+            issue_objs=[{"number": "#2", "title": "feat(mcp): Research and planning domain", "repo": "mcp-standard-research"}]
+        )
+        self.assertEqual(topic, "Research and planning domain")
+
+    def test_extract_topic_items_with_project_and_issues(self):
+        raw_desc = "[mcp-standard-research] Issues: #2 | Research and planning domain\n  - Subtask details"
+        items = extract_topic_items(raw_desc)
+        self.assertIn("Research and planning domain", items)
+        self.assertIn("Subtask details", items)
 
 
 if __name__ == "__main__":

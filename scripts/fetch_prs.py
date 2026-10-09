@@ -308,6 +308,7 @@ def fetch_comments_and_reviews_from_repos_gh_cli(target_date: str, username: str
                                 seen_comments.add(dedup_key)
                                 comments.append({
                                     "number": num,
+                                    "title": item.get("title", ""),
                                     "time": action_time,
                                     "author": author,
                                     "repo": repo_name,
@@ -343,6 +344,7 @@ def fetch_comments_and_reviews_from_repos_gh_cli(target_date: str, username: str
                                 seen_reviews.add(dedup_key)
                                 reviews.append({
                                     "number": num,
+                                    "title": item.get("title", ""),
                                     "time": action_time,
                                     "author": author,
                                     "repo": repo_name,
@@ -381,6 +383,7 @@ def fetch_comments_and_reviews_from_repos_gh_cli(target_date: str, username: str
                                 seen_comments.add(dedup_key)
                                 comments.append({
                                     "number": num,
+                                    "title": item.get("title", ""),
                                     "time": action_time,
                                     "author": author,
                                     "repo": repo_name,
@@ -537,12 +540,197 @@ def fetch_all_reviews(target_date: str) -> list:
     return reviews
 
 
+def fetch_issues_from_repos_gh_cli(target_date: str, username: str, repos: list) -> list:
+    """Fetch GitHub issues active on target_date (created, closed, or commented)."""
+    gh_bin = None
+    for bin_path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "gh"]:
+        try:
+            check = subprocess.run([bin_path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if check.returncode == 0:
+                gh_bin = bin_path
+                break
+        except FileNotFoundError:
+            continue
+
+    if not gh_bin:
+        return []
+
+    project_root = find_project_root()
+    issues = []
+    seen = set()
+
+    for r in repos:
+        repo_path = Path(r)
+        if not repo_path.is_absolute():
+            repo_path = (project_root / repo_path).resolve()
+
+        if not repo_path.is_dir():
+            continue
+
+        repo_name = repo_path.name
+
+        cmd = [
+            gh_bin, "issue", "list",
+            "--state", "all",
+            "--json", "number,title,comments,updatedAt,url,author,createdAt,closedAt",
+            "--limit", "30"
+        ]
+        try:
+            res = subprocess.run(cmd, cwd=str(repo_path), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res.returncode == 0 and res.stdout.strip():
+                items = json.loads(res.stdout)
+                for item in items:
+                    num = f"#{item.get('number')}"
+                    dedup_key = (repo_name, num)
+                    if dedup_key in seen:
+                        continue
+
+                    created_date = iso_to_local_date(item.get("createdAt") or "")
+                    updated_date = iso_to_local_date(item.get("updatedAt") or "")
+                    closed_date = iso_to_local_date(item.get("closedAt") or "")
+
+                    # Check for comments created on target_date
+                    today_comments = [
+                        c for c in item.get("comments", [])
+                        if iso_to_local_date(c.get("createdAt") or "") == target_date
+                    ]
+
+                    # Is this issue active today?
+                    if target_date not in (created_date, updated_date, closed_date) and not today_comments:
+                        continue
+
+                    action_time = ""
+                    if today_comments:
+                        comment_times = [iso_to_local_time(c.get("createdAt") or "") for c in today_comments if c.get("createdAt")]
+                        if comment_times:
+                            action_time = max(comment_times)
+                    elif closed_date == target_date and item.get("closedAt"):
+                        action_time = iso_to_local_time(item.get("closedAt"))
+                    elif created_date == target_date and item.get("createdAt"):
+                        action_time = iso_to_local_time(item.get("createdAt"))
+                    elif updated_date == target_date and item.get("updatedAt"):
+                        action_time = iso_to_local_time(item.get("updatedAt"))
+
+                    status = "open"
+                    if closed_date == target_date:
+                        status = "closed"
+                    elif created_date == target_date:
+                        status = "opened"
+                    elif today_comments:
+                        status = "commented"
+
+                    seen.add(dedup_key)
+                    issues.append({
+                        "number": num,
+                        "title": item.get("title", ""),
+                        "repo": repo_name,
+                        "status": status,
+                        "url": item.get("url", ""),
+                        "time": action_time,
+                        "comments_count": len(today_comments)
+                    })
+        except Exception:
+            continue
+
+    issues.sort(key=lambda x: x.get("time", ""))
+    return issues
+
+
+def fetch_all_issues(target_date: str) -> list:
+    """Fetch all GitHub issues active on target_date across repos."""
+    config = load_config()
+    username = config.get("user", {}).get("github_username", "")
+    root = find_project_root()
+    repos = list(config.get("repos", ["."]))
+
+    if config.get("auto_discover_siblings", True) and root.parent.exists():
+        for sibling in root.parent.iterdir():
+            if sibling.is_dir() and (sibling / ".git").exists() and sibling.resolve() != root.resolve():
+                sibling_resolved = str(sibling.resolve())
+                existing_resolved = [
+                    str(Path(r).resolve() if Path(r).is_absolute() else (root / r).resolve())
+                    for r in repos
+                ]
+                if sibling_resolved not in existing_resolved:
+                    repos.append(sibling_resolved)
+
+    return fetch_issues_from_repos_gh_cli(target_date, username, repos)
+
+
+def summarize_discussions(comments: list) -> list:
+    """Summarize comments into concise, topic-level discussion points per issue/PR."""
+    if not comments:
+        return []
+
+    # Group comments by (repo, number)
+    grouped = {}
+    for c in comments:
+        if isinstance(c, dict):
+            num = c.get("number", "")
+            repo = c.get("repo", "")
+            title = c.get("title", "")
+            author = c.get("author", "")
+            summary = c.get("summary", "")
+        else:
+            m = re.match(r"^(#\d+)", str(c))
+            num = m.group(1) if m else ""
+            repo = ""
+            title = ""
+            author = ""
+            summary = str(c)
+
+        key = (repo, num)
+        if key not in grouped:
+            grouped[key] = {
+                "num": num,
+                "repo": repo,
+                "title": title,
+                "authors": set(),
+                "count": 0,
+                "summaries": []
+            }
+        if author:
+            grouped[key]["authors"].add(author)
+        if title and not grouped[key]["title"]:
+            grouped[key]["title"] = title
+        grouped[key]["count"] += 1
+        if summary:
+            grouped[key]["summaries"].append(summary)
+
+    discussions = []
+    for key, data in grouped.items():
+        num = data["num"]
+        title = data["title"]
+        count = data["count"]
+
+        clean_t = ""
+        if title:
+            clean_t = re.sub(r"^(?:feat|fix|docs|chore|refactor|test|style|perf|build|ci)(?:\([^)]+\))?:\s*", "", title, flags=re.IGNORECASE).strip()
+            clean_t = re.sub(r"\s*\((?:fixes|closes|refs)?\s*#\d+\)", "", clean_t, flags=re.IGNORECASE).strip()
+            clean_t = re.sub(r"\s*\(#\d+\)", "", clean_t).strip()
+            if len(clean_t) > 50:
+                clean_t = clean_t[:47].rsplit(" ", 1)[0] + "..."
+
+        count_suffix = f"({count} comments)" if count > 1 else "(1 comment)"
+        if num and clean_t:
+            discussions.append(f"{num}: {clean_t} {count_suffix}")
+        elif num:
+            discussions.append(f"{num} {count_suffix}")
+        elif clean_t:
+            discussions.append(f"{clean_t} {count_suffix}")
+        elif data["summaries"]:
+            discussions.append(data["summaries"][0])
+
+    return discussions
+
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch pull requests, comments, and reviews for timesheet.")
     parser.add_argument("--date", default=datetime.date.today().isoformat(), help="Target date YYYY-MM-DD")
     parser.add_argument("--pretty", action="store_true", help="Pretty print JSON")
     parser.add_argument("--comments", action="store_true", help="Fetch comments instead of PRs")
     parser.add_argument("--reviews", action="store_true", help="Fetch reviews instead of PRs")
+    parser.add_argument("--issues", action="store_true", help="Fetch issues instead of PRs")
     args = parser.parse_args()
 
     indent = 2 if args.pretty else None
@@ -551,6 +739,9 @@ def main():
         print(json.dumps(res, indent=indent))
     elif args.reviews:
         res = fetch_all_reviews(args.date)
+        print(json.dumps(res, indent=indent))
+    elif args.issues:
+        res = fetch_all_issues(args.date)
         print(json.dumps(res, indent=indent))
     else:
         prs = fetch_all_prs(args.date)

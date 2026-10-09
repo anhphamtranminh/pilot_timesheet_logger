@@ -61,11 +61,14 @@ def save_or_update_block_entry(entry_dict: dict, custom_log_path: Path = None) -
         end_time=end_time,
         topic_summary=entry_dict.get("topic_summary", ""),
         prs=entry_dict.get("prs", []),
+        issues=entry_dict.get("issues", []),
+        project=entry_dict.get("project", ""),
         source_title=entry_dict.get("source_title", ""),
         repos=entry_dict.get("repos", []),
         commit_subjects=entry_dict.get("commit_subjects", []),
         reviews=entry_dict.get("reviews", []),
-        comments=entry_dict.get("comments", [])
+        comments=entry_dict.get("comments", []),
+        discussions=entry_dict.get("discussions", [])
     )
 
     # 1. Exact match on date, start_time, end_time
