@@ -36,3 +36,18 @@ The continuous improvement pattern: **log → review what broke → improve the 
   - Enabled two-way synchronization: read existing blocks from Gradion Workspace and post unlogged blocks back to the platform without duplicate range collisions.
   - Added support for updating existing and overlapping blocks via MCP `edit_time`, ensuring blocks (even if initially empty or created manually) get updated with their corresponding commits and PRs.
   - Included both commit subjects (`| Commits: ...`) and pull requests (`| PRs: ...`) directly within the Gradion Workspace entry description so they are clearly visible on the platform timesheet UI.
+
+### Fri 9 Oct 2026
+- **What happened:**
+  - Running timesheet logging mid-day on a workday with 0 pushed git commits resulted in the pipeline skipping timesheet generation entirely.
+  - The calendar meeting `[Intern Academy 2026] Security Awareness Training` was not recognized as a meeting block because `MEETING_KEYWORDS` lacked `"training"`.
+  - Leading, intermediate, and trailing dev work blocks around meetings were omitted when no commits were yet recorded.
+- **What broke / needed adjustment:**
+  - Pipeline skipped active morning work (`09:00 - 11:00`, `11:45 - 12:00`) and afternoon gaps when an intern attended meetings/training without early commit pushes.
+  - Internal git stash commits (`WIP on...`) were occasionally detected as git activity.
+- **Improvements made:**
+  - Expanded `MEETING_KEYWORDS` in `scripts/prepare_prompt.py` and `scripts/run_pipeline.py` to recognize training, orientation, onboarding, workshops, and ceremonies.
+  - Filtered internal git stash references in `scripts/fetch_git.py`.
+  - Updated activity heuristic to recognize active workdays during standard working hours (`>= 09:00` for morning, `>= 13:00` for afternoon), generating clean filler work blocks around meetings.
+  - Added test coverage in `tests/test_overlapping_blocks.py` verifying zero-commit workdays with training meetings produce all standard time blocks.
+
