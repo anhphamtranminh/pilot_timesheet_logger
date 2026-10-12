@@ -16,7 +16,13 @@ from fetch_git import extract_prs_from_subject
 from fetch_calendar import parse_ics_content, parse_ics_datetime
 from prepare_prompt import assign_items_to_blocks, time_to_minutes
 from format_entry import format_single_entry, format_description, extract_topic_items
-from save_entry import save_or_update_block_entry, get_monthly_log_path
+from save_entry import (
+    save_or_update_block_entry,
+    get_monthly_log_path,
+    get_persisted_timesheet_blocks,
+    is_block_already_blocked,
+    get_existing_blocked_intervals
+)
 from track_tokens import record_token_run, get_token_csv_path, generate_ascii_chart, generate_html_dashboard
 from fetch_prs import clean_snippet, summarize_discussions
 from run_pipeline import fallback_topic_grouping
@@ -285,6 +291,73 @@ END:VCALENDAR"""
         items = extract_topic_items(raw_desc)
         self.assertIn("Research and planning domain", items)
         self.assertIn("Subtask details", items)
+
+    def test_no_afternoon_prs_injected_into_morning_blocks(self):
+        blocks = [
+            {"title": "Morning Development", "start_time": "09:00", "end_time": "11:00", "source": "calendar"},
+            {"title": "Timesheet review", "start_time": "11:45", "end_time": "12:00", "source": "calendar"}
+        ]
+        commits = []
+        prs = [
+            {"number": "#46", "time": "14:47", "repo": "pilot_timesheet"},
+            {"number": "#47", "time": "16:53", "repo": "pilot_timesheet"},
+            {"number": "#49", "time": "17:29", "repo": "pilot_timesheet"}
+        ]
+        assigned = assign_items_to_blocks(blocks, commits, prs, target_date="2026-10-09")
+        # Morning 09:00-11:00 block must NOT be split and must NOT contain afternoon PRs
+        self.assertEqual(assigned[0]["start_time"], "09:00")
+        self.assertEqual(assigned[0]["end_time"], "11:00")
+        self.assertEqual(len(assigned[0]["prs"]), 0)
+
+        # Check all morning blocks (before 12:00)
+        morning_blocks = [b for b in assigned if int(b["start_time"].split(":")[0]) < 12]
+        for mb in morning_blocks:
+            self.assertEqual(len(mb["prs"]), 0, f"Morning block {mb['start_time']}-{mb['end_time']} should not contain PRs")
+
+        # Afternoon PRs must only be assigned to afternoon blocks (>= 12:00)
+        afternoon_blocks = [b for b in assigned if int(b["start_time"].split(":")[0]) >= 12]
+        self.assertTrue(len(afternoon_blocks) > 0)
+        afternoon_prs = set()
+        for ab in afternoon_blocks:
+            afternoon_prs.update(ab["prs"])
+        self.assertIn("#46", afternoon_prs)
+        self.assertIn("#47", afternoon_prs)
+        self.assertIn("#49", afternoon_prs)
+
+    def test_get_persisted_timesheet_blocks_and_is_already_blocked(self):
+        with tempfile.NamedTemporaryFile("w+", suffix=".md", delete=False) as tf:
+            tf.write("""# Pilot Timesheet Log — 2026-10
+
+### 2026-10-09 | 09:00 - 11:00 | Morning Development
+- **Description:** Morning Development and general engineering activities
+
+### 2026-10-09 | 11:45 - 12:00 | Timesheet review
+- **Description:** Timesheet review & daily sync
+""")
+            tf_path = Path(tf.name)
+
+        try:
+            persisted = get_persisted_timesheet_blocks("2026-10-09", custom_log_path=tf_path)
+            self.assertEqual(len(persisted), 2)
+            self.assertEqual(persisted[0]["start_time"], "09:00")
+            self.assertEqual(persisted[0]["end_time"], "11:00")
+            self.assertEqual(persisted[1]["start_time"], "11:45")
+            self.assertEqual(persisted[1]["end_time"], "12:00")
+
+            # Block already blocked
+            b1 = {"start_time": "09:00", "end_time": "11:00"}
+            self.assertTrue(is_block_already_blocked(b1, persisted))
+
+            # Block overlapping majority
+            b1_sub = {"start_time": "09:00", "end_time": "10:30"}
+            self.assertTrue(is_block_already_blocked(b1_sub, persisted))
+
+            # Remaining unblocked block
+            b_new = {"start_time": "13:00", "end_time": "14:00"}
+            self.assertFalse(is_block_already_blocked(b_new, persisted))
+        finally:
+            if tf_path.exists():
+                tf_path.unlink()
 
 
 if __name__ == "__main__":

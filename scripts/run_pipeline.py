@@ -13,7 +13,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prepare_prompt import generate_ai_payload
 from format_entry import format_single_entry
-from save_entry import save_or_update_block_entry
+from save_entry import (
+    save_or_update_block_entry,
+    get_existing_blocked_intervals,
+    is_block_already_blocked
+)
 from track_tokens import record_token_run
 from config import resolve_target_date
 
@@ -91,7 +95,13 @@ def fallback_topic_grouping(commit_subjects: list, calendar_title: str, prs: lis
     return commit_summary
 
 
-def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: dict = None, sync_workspace: bool = False) -> list:
+def run_daily_timesheet(
+    target_date: str,
+    dry_run: bool = False,
+    custom_topics: dict = None,
+    sync_workspace: bool = False,
+    remaining_only: bool = None
+) -> list:
     """Run timesheet generation pipeline for target_date."""
     payload = generate_ai_payload(target_date)
     blocks = payload.get("blocks", [])
@@ -100,6 +110,23 @@ def run_daily_timesheet(target_date: str, dry_run: bool = False, custom_topics: 
     if not blocks:
         print(f"\n[INFO] No work activity or time blocks detected for {target_date} (e.g. leave/absence). Timesheet entry skipped.\n")
         return []
+
+    today_str = datetime.date.today().isoformat()
+    if remaining_only is None:
+        remaining_only = (target_date == today_str)
+
+    if remaining_only:
+        existing_blocked = get_existing_blocked_intervals(target_date)
+        if existing_blocked:
+            unblocked_blocks = [b for b in blocks if not is_block_already_blocked(b, existing_blocked)]
+            blocked_count = len(blocks) - len(unblocked_blocks)
+            if blocked_count > 0:
+                print(f"[INFO] Detected {blocked_count} already-blocked time block(s) for {target_date} (preserved intact).")
+            if not unblocked_blocks:
+                print(f"[INFO] All time blocks for {target_date} are already blocked in timesheet and Gradion Workspace.")
+                print(f"[INFO] No remaining unblocked time blocks detected. Skipping without making changes.\n")
+                return []
+            blocks = unblocked_blocks
 
     print(f"\n[INFO] Processing Timesheet for {target_date}...")
     print(f"[INFO] Found {len(blocks)} time block(s). Estimated AI prompt tokens: {payload['estimated_input_tokens']}\n")
@@ -194,10 +221,18 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Print entries without saving to file")
     parser.add_argument("--topics-json", help="JSON object {block_id: topic_string} or list of topic strings synthesized by AI")
     parser.add_argument("--sync-workspace", action="store_true", help="Sync entry to Gradion Workspace Timesheet app")
+    parser.add_argument("--remaining-only", action="store_true", default=None, help="Only process and log remaining unblocked time blocks")
+    parser.add_argument("--all", "--reblock-all", dest="reblock_all", action="store_true", help="Reblock and update all time blocks for the day from the beginning")
     args = parser.parse_args()
 
     raw_date = args.date or args.date_pos
     target_date = resolve_target_date(raw_date)
+
+    remaining_only = None
+    if args.reblock_all:
+        remaining_only = False
+    elif args.remaining_only:
+        remaining_only = True
 
     custom_topics = None
     if args.topics_json:
@@ -206,7 +241,10 @@ def main():
         except json.JSONDecodeError as e:
             print(f"[WARN] Failed to parse --topics-json: {e}. Using fallback grouping.", file=sys.stderr)
 
-    run_daily_timesheet(target_date, args.dry_run, custom_topics, args.sync_workspace)
+    if remaining_only is not None:
+        run_daily_timesheet(target_date, args.dry_run, custom_topics, args.sync_workspace, remaining_only=remaining_only)
+    else:
+        run_daily_timesheet(target_date, args.dry_run, custom_topics, args.sync_workspace)
 
 
 if __name__ == "__main__":

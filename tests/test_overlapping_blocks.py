@@ -585,7 +585,8 @@ class TestOverlappingBlocks(unittest.TestCase):
     def test_zero_commit_workday_with_meetings_and_gaps(self):
         """Today with zero commits but morning training and afternoon 1-on-1 produces all 6 expected blocks."""
         import datetime
-        today_str = datetime.date.today().isoformat()
+        mock_now = datetime.datetime.now().replace(hour=18, minute=30)
+        today_str = mock_now.date().isoformat()
 
         blocks = [
             {
@@ -604,7 +605,11 @@ class TestOverlappingBlocks(unittest.TestCase):
         commits = []
         prs = []
 
-        assigned = assign_items_to_blocks(blocks, commits, prs, target_date=today_str)
+        with patch("prepare_prompt.datetime.datetime") as mock_dt:
+            mock_dt.now.return_value = mock_now
+            mock_dt.combine = datetime.datetime.combine
+            mock_dt.fromisoformat = datetime.datetime.fromisoformat
+            assigned = assign_items_to_blocks(blocks, commits, prs, target_date=today_str)
         # Should have at least 5 blocks: 09:00-11:00, 11:00-11:45, 11:45-12:00, 13:00-13:15, 13:15-13:30, plus trailing afternoon if afternoon
         self.assertGreaterEqual(len(assigned), 5)
 
