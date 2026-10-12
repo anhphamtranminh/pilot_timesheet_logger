@@ -43,6 +43,90 @@ def init_log_file_if_missing(file_path: Path, month_str: str):
         file_path.write_text(header, encoding="utf-8")
 
 
+def get_persisted_timesheet_blocks(date_str: str, custom_log_path: Path = None) -> list:
+    """Parse existing timesheet blocks from the monthly markdown log for a specific date."""
+    log_path = custom_log_path if custom_log_path else get_monthly_log_path(date_str)
+    if not log_path.exists():
+        return []
+    content = log_path.read_text(encoding="utf-8")
+    pattern = re.compile(
+        rf"### {re.escape(date_str)} \| (\d{{2}}:\d{{2}}) - (\d{{2}}:\d{{2}}) \|[ \t]*(.*?)\n",
+        re.MULTILINE
+    )
+    blocks = []
+    for match in pattern.finditer(content):
+        st = match.group(1)
+        et = match.group(2)
+        title = match.group(3).strip()
+        blocks.append({
+            "date": date_str,
+            "start_time": st,
+            "end_time": et,
+            "title": title,
+            "source": "markdown_log"
+        })
+    blocks.sort(key=lambda x: x["start_time"])
+    return blocks
+
+
+def is_block_already_blocked(cand_block: dict, blocked_blocks: list) -> bool:
+    """Check if a candidate time block is already blocked/logged in existing records."""
+    def to_min(t_str):
+        parts = t_str.split(":")
+        return int(parts[0]) * 60 + int(parts[1]) if len(parts) >= 2 else 0
+
+    c_s = to_min(cand_block.get("start_time", "00:00"))
+    c_e = to_min(cand_block.get("end_time", "00:00"))
+    c_dur = c_e - c_s
+    if c_dur <= 0:
+        return False
+
+    for b in blocked_blocks:
+        b_s = to_min(b.get("start_time", "00:00"))
+        b_e = to_min(b.get("end_time", "00:00"))
+        b_dur = b_e - b_s
+        if b_dur <= 0:
+            continue
+
+        # If existing is an 8+ hr placeholder (e.g. 09:00 - 18:00 Daily Development), it does not count as locked discrete block
+        if b_dur >= 480 and "Daily Development" in b.get("title", ""):
+            continue
+
+        # Exact match
+        if c_s == b_s and c_e == b_e:
+            return True
+
+        # Close match (within 15 minutes boundary shift)
+        if abs(c_s - b_s) <= 15 and abs(c_e - b_e) <= 15:
+            return True
+
+        # Candidate is largely covered by existing block
+        overlap = min(c_e, b_e) - max(c_s, b_s)
+        if overlap >= c_dur * 0.75:
+            return True
+
+    return False
+
+
+def get_existing_blocked_intervals(date_str: str, custom_log_path: Path = None, check_workspace: bool = True) -> list:
+    """Get all existing blocked time blocks from markdown logs and optionally Gradion Workspace."""
+    blocked = get_persisted_timesheet_blocks(date_str, custom_log_path)
+    if check_workspace:
+        try:
+            from fetch_workspace_timesheet import fetch_workspace_timesheet_blocks, resolve_gradion_token
+            if resolve_gradion_token():
+                ws_blocks = fetch_workspace_timesheet_blocks(date_str)
+                for wb in ws_blocks:
+                    if not any(
+                        wb.get("start_time") == b.get("start_time") and wb.get("end_time") == b.get("end_time")
+                        for b in blocked
+                    ):
+                        blocked.append(wb)
+        except Exception:
+            pass
+    return blocked
+
+
 def save_or_update_block_entry(entry_dict: dict, custom_log_path: Path = None) -> bool:
     """Save or update a timesheet block entry, preventing duplicate time blocks."""
     date_str = entry_dict.get("date", datetime.date.today().isoformat())

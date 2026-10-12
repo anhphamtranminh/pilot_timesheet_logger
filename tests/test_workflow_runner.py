@@ -121,6 +121,22 @@ class TestWorkflowRunner(unittest.TestCase):
             pipeline_main()
         mock_run.assert_called_once_with(yesterday, False, None, True)
 
+    @patch("run_pipeline.run_daily_timesheet")
+    def test_pipeline_main_remaining_only(self, mock_run):
+        """Test that run_pipeline.py passes remaining_only=True when flag is set."""
+        from run_pipeline import main as pipeline_main
+        with patch("sys.argv", ["run_pipeline.py", "--remaining-only", "2026-10-12"]):
+            pipeline_main()
+        mock_run.assert_called_once_with("2026-10-12", False, None, False, remaining_only=True)
+
+    @patch("run_pipeline.run_daily_timesheet")
+    def test_pipeline_main_reblock_all(self, mock_run):
+        """Test that run_pipeline.py passes remaining_only=False when --reblock-all is set."""
+        from run_pipeline import main as pipeline_main
+        with patch("sys.argv", ["run_pipeline.py", "--reblock-all", "2026-10-12"]):
+            pipeline_main()
+        mock_run.assert_called_once_with("2026-10-12", False, None, False, remaining_only=False)
+
 
 if __name__ == "__main__":
     unittest.main()

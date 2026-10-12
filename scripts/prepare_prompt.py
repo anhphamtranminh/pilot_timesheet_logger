@@ -1166,12 +1166,22 @@ def assign_items_to_blocks(
                     morning_repos_set.add(c["repo"])
 
     if not morning_prs_set and prs:
-        for p in prs:
-            morning_prs_set.add(p["number"])
-            if p.get("repo"):
-                morning_repos_set.add(p["repo"])
-            if p not in morning_pr_objs:
-                morning_pr_objs.append(p)
+        # Only fallback to un-timed PRs if they don't have explicit afternoon timestamps
+        # and there is no afternoon activity indicating they belong exclusively to afternoon
+        has_afternoon_activity = any(
+            (time_to_minutes(p.get("time", "")) or 0) >= 720 for p in prs if p.get("time")
+        ) or any(
+            (time_to_minutes(c.get("time", "")) or 0) >= 720 for c in commits if c.get("time")
+        )
+        if not has_afternoon_activity:
+            for p in prs:
+                p_t = time_to_minutes(p.get("time", "")) if p.get("time") else None
+                if p_t is None or p_t < 720:
+                    morning_prs_set.add(p["number"])
+                    if p.get("repo"):
+                        morning_repos_set.add(p["repo"])
+                    if p not in morning_pr_objs:
+                        morning_pr_objs.append(p)
 
     for b in structured_blocks:
         if time_to_minutes(b["start_time"]) < 720 and not is_meeting_block(b):
@@ -1239,6 +1249,11 @@ def assign_items_to_blocks(
             t = time_to_minutes(iss_obj.get("time", ""))
             if t > 0:
                 activity_times.append(t)
+
+        relevant_acts = [t for t in activity_times if start_m <= t <= end_m]
+        if len(set(relevant_acts)) < 2:
+            final_blocks.append(b)
+            continue
 
         if dur >= 90 and (num_prs >= 4 or num_items >= 6):
             target_dur, max_dur, min_dur = 35, 45, 30

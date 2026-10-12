@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prepare_prompt import generate_ai_payload
 from run_pipeline import fallback_topic_grouping
 from format_entry import format_single_entry
+from save_entry import get_existing_blocked_intervals, is_block_already_blocked
 from track_tokens import estimate_tokens
 from config import resolve_target_date
 
@@ -40,7 +41,13 @@ def print_banner(target_date: str, mode: str):
     print(f"{CYAN}{'-' * 78}{RESET}\n")
 
 
-def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool = False, sync_workspace: bool = False):
+def run_workflow_test(
+    target_date: str,
+    custom_topics: dict = None,
+    live: bool = False,
+    sync_workspace: bool = False,
+    remaining_only: bool = None
+):
     mode_str = "LIVE EXECUTION (Disk & Workspace)" if live else "DRY-RUN SIMULATION (No file or API writes)"
     print_banner(target_date, mode_str)
 
@@ -50,6 +57,22 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
     print(f"{BOLD}{BLUE}[Step 1/5] Extracting Data (Git, GitHub PRs, Calendar/Workspace)...{RESET}")
     payload = generate_ai_payload(target_date)
     blocks = payload.get("blocks", [])
+
+    today_str = datetime.date.today().isoformat()
+    if remaining_only is None:
+        remaining_only = (target_date == today_str)
+
+    if remaining_only:
+        existing_blocked = get_existing_blocked_intervals(target_date)
+        if existing_blocked:
+            unblocked = [b for b in blocks if not is_block_already_blocked(b, existing_blocked)]
+            preserved_count = len(blocks) - len(unblocked)
+            print(f"  • Already-blocked intervals : {BOLD}{preserved_count}{RESET} block(s) (preserved intact)")
+            print(f"  • Remaining unblocked blocks: {BOLD}{len(unblocked)}{RESET} block(s)")
+            if not unblocked:
+                print(f"\n{BOLD}{GREEN}[INFO] All time blocks for {target_date} are already blocked! No remaining unblocked time detected.{RESET}\n")
+                return
+            blocks = unblocked
 
     print(f"  • Found {BOLD}{len(blocks)}{RESET} time block(s).")
     for b in blocks:
@@ -178,7 +201,7 @@ def run_workflow_test(target_date: str, custom_topics: dict = None, live: bool =
     else:
         from run_pipeline import run_daily_timesheet
         print(f" {GREEN}Executing live timesheet persistence...{RESET}")
-        run_daily_timesheet(target_date, dry_run=False, custom_topics=synthesized_topics, sync_workspace=sync_workspace)
+        run_daily_timesheet(target_date, dry_run=False, custom_topics=synthesized_topics, sync_workspace=sync_workspace, remaining_only=remaining_only)
         print(f" {GREEN}[OK] Timesheet saved and synced successfully.{RESET}")
     print(f"{BOLD}{CYAN}{'=' * 78}{RESET}\n")
 
@@ -190,10 +213,18 @@ def main():
     parser.add_argument("--live", action="store_true", help="Perform live save to markdown and sync to Workspace")
     parser.add_argument("--sync-workspace", action="store_true", help="Sync to Gradion Workspace (if --live is enabled)")
     parser.add_argument("--topics-json", help="Optional JSON string of custom topic summaries")
+    parser.add_argument("--remaining-only", action="store_true", default=None, help="Only test remaining unblocked time blocks")
+    parser.add_argument("--all", "--reblock-all", dest="reblock_all", action="store_true", help="Test all time blocks from the beginning of the day")
     args = parser.parse_args()
 
     raw_date = args.date or args.date_pos
     target_date = resolve_target_date(raw_date)
+
+    remaining_only = None
+    if args.reblock_all:
+        remaining_only = False
+    elif args.remaining_only:
+        remaining_only = True
 
     custom_topics = None
     if args.topics_json:
@@ -202,7 +233,7 @@ def main():
         except json.JSONDecodeError as e:
             print(f"[WARN] Failed to parse custom topics: {e}", file=sys.stderr)
 
-    run_workflow_test(target_date, custom_topics=custom_topics, live=args.live, sync_workspace=args.sync_workspace)
+    run_workflow_test(target_date, custom_topics=custom_topics, live=args.live, sync_workspace=args.sync_workspace, remaining_only=remaining_only)
 
 
 if __name__ == "__main__":
