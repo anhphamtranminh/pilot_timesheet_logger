@@ -8,7 +8,6 @@
 
 ## Daily Entries
 
-
 ### 2026-10-06 | 09:00 - 18:00 | Personal pilot timesheet logger implementation, GitHub PR...
 
 - **Date:** 2026-10-06
@@ -30,6 +29,7 @@
   - *Calendar / Activity:* Model Context Protocol (MCP) architecture research, workflow alignment with team member, and multi-branch commit harvesting implementation
   - *Repos:* pilot_timesheet
   - *Commits:* fix(git,prs): support multi-branch commit harvesting via --all and timezone-aware PR matching
+
 ### 2026-10-07 | 11:00 - 12:00 | In-depth investigation of Model Context Protocol (MCP) server...
 
 - **Date:** 2026-10-07
@@ -40,6 +40,7 @@
   - *Calendar / Activity:* Read the references documents in the assignment 2 to dive deeper in MCP server.
   - *Repos:* N/A
   - *Commits:* None
+
 ### 2026-10-07 | 13:00 - 14:30 | Collaborative GitHub repo architecture planning and skill...
 
 - **Date:** 2026-10-07
@@ -50,6 +51,7 @@
   - *Calendar / Activity:* Collaborative GitHub repo architecture planning and skill packaging refactoring for single source of truth
   - *Repos:* pilot_timesheet
   - *Commits:* refactor(skills): remove root duplicates and symlink .claude skill to canonical folder (fixes #3)
+
 ### 2026-10-07 | 14:30 - 16:00 | Internship technical catch-up and engineering Q&A session...
 
 - **Date:** 2026-10-07
@@ -60,6 +62,7 @@
   - *Calendar / Activity:* Catch-up & Q&A Session with Mr. Hieu Vo
   - *Repos:* N/A
   - *Commits:* None
+
 ### 2026-10-07 | 16:00 - 18:58 | Gradion Workspace API timesheet integration, multi-repo...
 
 - **Date:** 2026-10-07
@@ -81,37 +84,6 @@
   - *Calendar / Activity:* Morning Development
   - *Repos:* pilot_timesheet
   - *Commits:* feat(workspace): include commits and PRs in timesheet entry description and sync all blocks
-### 2026-10-08 | 10:30 - 11:15 | [MCP Research] Kickoff Meeting & Task Allocation
-
-- **Date:** 2026-10-08
-- **Start time:** 10:30
-- **End time:** 11:15
-- **Description:** [MCP Research] Kickoff Meeting & Task Allocation
-- **Source Trace:**
-  - *Calendar / Activity:* [MCP Research] Kickoff Meeting & Task Allocation
-  - *Repos:* N/A
-  - *Commits:* None
-### 2026-10-08 | 11:15 - 12:00 | Morning Development and general engineering activities
-
-- **Date:** 2026-10-08
-- **Start time:** 11:15
-- **End time:** 12:00
-- **Description:** Morning Development and general engineering activities
-- **Source Trace:**
-  - *Calendar / Activity:* Morning Development
-  - *Repos:* N/A
-  - *Commits:* None
-### 2026-10-08 | 13:00 - 13:45 | Afternoon Development and general engineering activities
-
-- **Date:** 2026-10-08
-- **Start time:** 13:00
-- **End time:** 13:45
-- **Description:** Afternoon Development and general engineering activities
-- **Source Trace:**
-  - *Calendar / Activity:* Afternoon Development
-  - *Repos:* N/A
-  - *Commits:* None
-
 
 ### 2026-10-08 | 09:30 - 10:00 | Add interactive AI workflow test runner and agy triggers
 
@@ -136,6 +108,39 @@
   - *Repos:* pilot_timesheet
   - *Commits:* docs: add comprehensive project README (fixes #14); docs: remove emojis and section numbers from README (fixes #16)
   - *Comments:* #5: Completed in PR #9 with automatic sibling repository auto-discovery.; #4: Completed in PR #2 and PR #13 with skill packaging, AGENTS.md quick...
+
+### 2026-10-08 | 10:30 - 11:15 | [MCP Research] Kickoff Meeting & Task Allocation
+
+- **Date:** 2026-10-08
+- **Start time:** 10:30
+- **End time:** 11:15
+- **Description:** [MCP Research] Kickoff Meeting & Task Allocation
+- **Source Trace:**
+  - *Calendar / Activity:* [MCP Research] Kickoff Meeting & Task Allocation
+  - *Repos:* N/A
+  - *Commits:* None
+
+### 2026-10-08 | 11:15 - 12:00 | Morning Development and general engineering activities
+
+- **Date:** 2026-10-08
+- **Start time:** 11:15
+- **End time:** 12:00
+- **Description:** Morning Development and general engineering activities
+- **Source Trace:**
+  - *Calendar / Activity:* Morning Development
+  - *Repos:* N/A
+  - *Commits:* None
+
+### 2026-10-08 | 13:00 - 13:45 | Afternoon Development and general engineering activities
+
+- **Date:** 2026-10-08
+- **Start time:** 13:00
+- **End time:** 13:45
+- **Description:** Afternoon Development and general engineering activities
+- **Source Trace:**
+  - *Calendar / Activity:* Afternoon Development
+  - *Repos:* N/A
+  - *Commits:* None
 
 ### 2026-10-08 | 13:45 - 14:15 | Place PR and issue numbers at start of description
 
@@ -220,37 +225,59 @@
   - *Repos:* pilot_timesheet
   - *Commits:* feat: split oversized development blocks into focused PR sub-blocks (fixes #34); feat: split long morning blocks into smaller sub-blocks and shorten descriptions (fixes #36)
 
-### 2026-10-09 | 09:00 - 11:00 | Problem investigation and task development for #46
+### 2026-10-09 | 09:00 - 09:45 | Problem investigation and task development for #46, #47, #49...
 
 - **Date:** 2026-10-09
 - **Start time:** 09:00
-- **End time:** 11:00
-- **Description:** PRs: #46 | Problem investigation and task development for #46
+- **End time:** 09:45
+- **Description:** Problem investigation and task development for #46, #47, #49 and general engineering activities
 - **Source Trace:**
-  - *Calendar / Activity:* Morning Development
-  - *Repos:* pilot_timesheet
+  - *Calendar / Activity:* Problem investigation and task development for #46, #47, #49
+  - *Repos:* N/A
   - *Commits:* None
 
-### 2026-10-09 | 11:00 - 11:45 | [Intern Academy 2026] Security Awareness Training
+### 2026-10-09 | 09:45 - 10:15 | Problem investigation and task development for #46, #47, #49...
+
+- **Date:** 2026-10-09
+- **Start time:** 09:45
+- **End time:** 10:15
+- **Description:** Problem investigation and task development for #46, #47, #49 and general engineering activities
+- **Source Trace:**
+  - *Calendar / Activity:* Problem investigation and task development for #46, #47, #49
+  - *Repos:* N/A
+  - *Commits:* None
+
+### 2026-10-09 | 10:15 - 11:00 | Problem investigation and task development for #46, #47, #49...
+
+- **Date:** 2026-10-09
+- **Start time:** 10:15
+- **End time:** 11:00
+- **Description:** Problem investigation and task development for #46, #47, #49 and general engineering activities
+- **Source Trace:**
+  - *Calendar / Activity:* Problem investigation and task development for #46, #47, #49
+  - *Repos:* N/A
+  - *Commits:* None
+
+### 2026-10-09 | 11:00 - 11:45 | Security Awareness Training
 
 - **Date:** 2026-10-09
 - **Start time:** 11:00
 - **End time:** 11:45
-- **Description:** [Intern Academy 2026] Security Awareness Training
+- **Description:** Security Awareness Training
 - **Source Trace:**
-  - *Calendar / Activity:* [Intern Academy 2026] Security Awareness Training
+  - *Calendar / Activity:* Security Awareness Training
   - *Repos:* N/A
   - *Commits:* None
 
-### 2026-10-09 | 11:45 - 12:00 | Problem investigation and task development for #46
+### 2026-10-09 | 11:45 - 12:00 | Problem investigation and task development for #46, #47, #49...
 
 - **Date:** 2026-10-09
 - **Start time:** 11:45
 - **End time:** 12:00
-- **Description:** PRs: #46 | Problem investigation and task development for #46
+- **Description:** Problem investigation and task development for #46, #47, #49 and general engineering activities
 - **Source Trace:**
-  - *Calendar / Activity:* Morning Development
-  - *Repos:* pilot_timesheet
+  - *Calendar / Activity:* Problem investigation and task development for #46, #47, #49
+  - *Repos:* N/A
   - *Commits:* None
 
 ### 2026-10-09 | 13:00 - 13:15 | Afternoon Development and general engineering activities
@@ -264,25 +291,115 @@
   - *Repos:* N/A
   - *Commits:* None
 
-### 2026-10-09 | 13:15 - 13:30 | [Gradion Intern Academy 2026] Weekly 1-on-1 Sync with Supervisor
+### 2026-10-09 | 13:15 - 13:30 | Weekly 1-on-1 Sync with Supervisor
 
 - **Date:** 2026-10-09
 - **Start time:** 13:15
 - **End time:** 13:30
-- **Description:** [Gradion Intern Academy 2026] Weekly 1-on-1 Sync with Supervisor
+- **Description:** Weekly 1-on-1 Sync with Supervisor
 - **Source Trace:**
-  - *Calendar / Activity:* [Gradion Intern Academy 2026] Weekly 1-on-1 Sync with Supervisor
+  - *Calendar / Activity:* Weekly 1-on-1 Sync with Supervisor
   - *Repos:* N/A
   - *Commits:* None
 
-### 2026-10-09 | 13:30 - 14:49 | Preserve morning work blocks and recognize training/event...
+### 2026-10-09 | 13:30 - 14:15 | Afternoon Development and general engineering activities
 
 - **Date:** 2026-10-09
 - **Start time:** 13:30
-- **End time:** 14:49
-- **Description:** PRs: #45, #46 | Preserve morning work blocks and recognize training/event meetings
+- **End time:** 14:15
+- **Description:** Afternoon Development and general engineering activities
+- **Source Trace:**
+  - *Calendar / Activity:* Afternoon Development
+  - *Repos:* N/A
+  - *Commits:* None
+
+### 2026-10-09 | 14:15 - 15:15 | [pilot_timesheet] Preserve morning work blocks and recognize training/event...
+
+- **Date:** 2026-10-09
+- **Start time:** 14:15
+- **End time:** 15:15
+- **Description:** [pilot_timesheet] PRs: #45, #46, #47 | Issues: #45 | Preserve morning work blocks and recognize training/event meetings
+  - Record timesheet and improvement log for 2026-10-09
 - **Source Trace:**
   - *Calendar / Activity:* Afternoon Development
   - *Repos:* pilot_timesheet
-  - *Commits:* fix(pipeline): preserve morning work blocks and recognize training/event meetings (fixes #45)
+  - *Commits:* fix(pipeline): preserve morning work blocks and recognize training/event meetings (fixes #45); docs(logs): record timesheet and improvement log for 2026-10-09
+  - *Issues:* #45
 
+### 2026-10-09 | 15:15 - 15:45 | [mcp-standard-research] Kickoff & Team Alignment: Topic & Deliverable Split for...
+
+- **Date:** 2026-10-09
+- **Start time:** 15:15
+- **End time:** 15:45
+- **Description:** [mcp-standard-research] Issues: #1 | Kickoff & Team Alignment: Topic & Deliverable Split for Assignment 2 (Group A) | Comments: #2 comment by @anhdo-gradion: Flashcard sounds good | Comments: #2 comment by @anhdo-gradion: Flashcard sounds good
+  - #2 comment by @bela-gradion: Is everybody fine with TypeScript for the techstack?
+- **Source Trace:**
+  - *Calendar / Activity:* Kickoff & Team Alignment: Topic & Deliverable Split for Assignment 2 (Group A) | Comments: #2 comment by @anhdo-gradion: Flashcard sounds good | Comments: #2 comment by @anhdo-gradion: Flashcard sounds good; #2 comment by @bela-gradion: Is everybody fine with TypeScript for the techstack?
+  - *Repos:* mcp-standard-research
+  - *Commits:* None
+  - *Issues:* #1
+  - *Discussions:* #2: Research and planning: Select server topic and... (2 comments)
+
+### 2026-10-09 | 15:45 - 16:15 | [mcp-standard-research] Afternoon Development and general engineering activities
+
+- **Date:** 2026-10-09
+- **Start time:** 15:45
+- **End time:** 16:15
+- **Description:** [mcp-standard-research] Afternoon Development and general engineering activities
+- **Source Trace:**
+  - *Calendar / Activity:* Afternoon Development
+  - *Repos:* mcp-standard-research
+  - *Commits:* None
+  - *Discussions:* #2: Research and planning: Select server topic and... (3 comments)
+
+### 2026-10-09 | 16:15 - 16:45 | [mcp-standard-research] Afternoon Development and general engineering activities
+
+- **Date:** 2026-10-09
+- **Start time:** 16:15
+- **End time:** 16:45
+- **Description:** [mcp-standard-research] Afternoon Development and general engineering activities
+- **Source Trace:**
+  - *Calendar / Activity:* Afternoon Development
+  - *Repos:* mcp-standard-research
+  - *Commits:* None
+  - *Discussions:* #2: Research and planning: Select server topic and... (1 comment)
+
+### 2026-10-09 | 16:45 - 17:29 | [mcp-standard-research, pilot_timesheet] Tag project context on PRs and issues and summarize...
+
+- **Date:** 2026-10-09
+- **Start time:** 16:45
+- **End time:** 17:29
+- **Description:** [mcp-standard-research, pilot_timesheet] PRs: #48, #49 | Issues: #2, #48 | Tag project context on PRs and issues and summarize discussions concisely
+- **Source Trace:**
+  - *Calendar / Activity:* Afternoon Development
+  - *Repos:* mcp-standard-research, pilot_timesheet
+  - *Commits:* feat(pipeline): tag project context on PRs and issues and summarize discussions concisely (fixes #48)
+  - *Issues:* #2, #48
+  - *Discussions:* #2: Research and planning: Select server topic and... (1 comment)
+
+### 2026-10-09 | 17:29 - 18:00 | Afternoon Development and general engineering activities
+
+- **Date:** 2026-10-09
+- **Start time:** 17:29
+- **End time:** 18:00
+- **Description:** Afternoon Development and general engineering activities
+- **Source Trace:**
+  - *Calendar / Activity:* Afternoon Development
+  - *Repos:* N/A
+  - *Commits:* None
+
+### 2026-10-12 | 09:00 - 18:00 | [mcp-standard-research, pilot_timesheet] Prevent duplicate block splitting and support incremental...
+
+- **Date:** 2026-10-12
+- **Start time:** 09:00
+- **End time:** 18:00
+- **Description:** [mcp-standard-research, pilot_timesheet] PRs: #15, #18, #19, #21, #22, #23, #25, #26, #30, #31, #50, #51, #52, #53, #54 | Issues: #10, #11, #12, #13, #14, #16, #17, #2, #20, #24, #27, #28, #29, #3, #4, #5, #50, #52, #6, #7, #8, #9 | Prevent duplicate block splitting and support incremental remaining-only...
+  - Update improvement log from kickoff to present
+  - Record 2026-10-09 token usage in logs/token_usage.csv
+- **Source Trace:**
+  - *Calendar / Activity:* Daily Development
+  - *Repos:* mcp-standard-research, pilot_timesheet
+  - *Commits:* fix(pipeline): prevent duplicate block splitting and support incremental remaining-only blocking (fixes #50); docs(logs): update improvement log from kickoff to present (fixes #52); docs(tokens): record 2026-10-09 token usage in logs/token_usage.csv
+  - *Issues:* #10, #11, #12, #13, #14, #16, #17, #2, #20, #24, #27, #28, #29, #3, #4, #5, #50, #52, #6, #7, #8, #9
+  - *Reviews:* #18: review comment by @anhdo-gradion
+  - *Discussions:* #15: initialize Next.js and Tailwind CSS project... (1 comment); #18: add user registration, login, and session... (1 comment); #19: implement framework-independent 2048 game engine (3 comments); #12: [FEAT] Implement Leaderboard API (1 comment); #22: [CHORE] Initialize MCP Server Project (1 comment); #29: [FEAT] Implement Snake Game Engine (1 comment); #30: implement Snake game engine and web platform... (3 comments)
