@@ -359,7 +359,49 @@ END:VCALENDAR"""
             if tf_path.exists():
                 tf_path.unlink()
 
+    def test_trailing_afternoon_workday_completed_to_1800_on_past_date(self):
+        """Past workdays with afternoon activity ending before 18:00 must complete up to 18:00."""
+        blocks = [
+            {"title": "Morning Development", "start_time": "09:00", "end_time": "12:00", "source": "calendar"},
+            {"title": "Afternoon Development", "start_time": "13:00", "end_time": "16:45", "source": "calendar"},
+            {
+                "title": "PR Review & Merge",
+                "start_time": "16:45",
+                "end_time": "17:29",
+                "source": "workspace_timesheet",
+                "entry_id": "ws-entry-uuid-1",
+                "project": "Internal Project"
+            }
+        ]
+        commits = []
+        prs = [{"number": "#49", "time": "17:29", "repo": "pilot_timesheet"}]
+
+        assigned = assign_items_to_blocks(blocks, commits, prs, target_date="2026-10-09")
+
+        # The discrete PR block with entry_id must remain 16:45 - 17:29
+        pr_block = [b for b in assigned if b.get("entry_id") == "ws-entry-uuid-1"]
+        self.assertEqual(len(pr_block), 1)
+        self.assertEqual(pr_block[0]["start_time"], "16:45")
+        self.assertEqual(pr_block[0]["end_time"], "17:29")
+
+        # A new block completing the workday to 18:00 must be appended
+        trailing_block = assigned[-1]
+        self.assertEqual(trailing_block["start_time"], "17:29")
+        self.assertEqual(trailing_block["end_time"], "18:00")
+        self.assertIn("Afternoon Development", trailing_block["title"])
+        self.assertFalse(trailing_block.get("entry_id"))
+
+        # Case 2: Filler block without entry_id or PRs simply extends to 18:00
+        blocks_filler = [
+            {"title": "Morning Development", "start_time": "09:00", "end_time": "12:00", "source": "calendar"},
+            {"title": "Afternoon Development", "start_time": "13:00", "end_time": "17:15", "source": "calendar"}
+        ]
+        assigned_filler = assign_items_to_blocks(blocks_filler, [], [], target_date="2026-10-09")
+        self.assertEqual(assigned_filler[-1]["start_time"], "13:00")
+        self.assertEqual(assigned_filler[-1]["end_time"], "18:00")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
