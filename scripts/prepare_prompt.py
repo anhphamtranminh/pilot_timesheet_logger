@@ -770,7 +770,7 @@ def assign_items_to_blocks(
                                 target_afternoon_end = min(now_min, max_c_time + 15)
                         if target_afternoon_end - last_a_end >= 15:
                             last_a_block = new_afternoon_blocks[-1]
-                            if not is_meeting_block(last_a_block):
+                            if not is_meeting_block(last_a_block) and not last_a_block.get("entry_id") and not last_a_block.get("prs") and not last_a_block.get("commits"):
                                 last_a_block["end_time"] = f"{target_afternoon_end // 60:02d}:{target_afternoon_end % 60:02d}"
                             else:
                                 new_afternoon_blocks.append({
@@ -792,7 +792,7 @@ def assign_items_to_blocks(
                         last_a_block = new_afternoon_blocks[-1]
                         if work_act_items:
                             max_c_time = max(time_to_minutes(x.get("time", "12:00")) for x in work_act_items if x.get("time"))
-                            if max_c_time > last_a_end and not is_meeting_block(last_a_block):
+                            if max_c_time > last_a_end and not is_meeting_block(last_a_block) and not last_a_block.get("entry_id"):
                                 extended_end = max_c_time + 15
                                 last_a_block["end_time"] = f"{extended_end // 60:02d}:{extended_end % 60:02d}"
                                 last_a_end = extended_end
@@ -817,6 +817,32 @@ def assign_items_to_blocks(
                                     "reviews": [],
                                     "comments": []
                                 })
+                                last_a_end = end_m
+
+                        # Complete normal workday to 18:00 (1080 min) if trailing gap >= 15 min and workday context exists
+                        has_workday_context = any(not is_meeting_block(b) for b in new_afternoon_blocks) or len(new_morning_blocks) > 0
+                        if has_workday_context and last_a_end < 1080 and (1080 - last_a_end) >= 15:
+                            last_a_block = new_afternoon_blocks[-1]
+                            if not is_meeting_block(last_a_block) and not last_a_block.get("entry_id") and not last_a_block.get("prs") and not last_a_block.get("commits"):
+                                last_a_block["end_time"] = "18:00"
+                                last_a_end = 1080
+                            else:
+                                new_afternoon_blocks.append({
+                                    "block_id": 0,
+                                    "title": "Afternoon Development",
+                                    "start_time": f"{last_a_end // 60:02d}:{last_a_end % 60:02d}",
+                                    "end_time": "18:00",
+                                    "source": "commits_prs",
+                                    "entry_id": "",
+                                    "project": "",
+                                    "status": "",
+                                    "commits": [],
+                                    "prs": set(),
+                                    "repos": set(),
+                                    "reviews": [],
+                                    "comments": []
+                                })
+                                last_a_end = 1080
 
         existing_evening = [b for b in structured_blocks if time_to_minutes(b["start_time"]) >= 1080]
         structured_blocks = new_morning_blocks + new_afternoon_blocks + existing_evening
