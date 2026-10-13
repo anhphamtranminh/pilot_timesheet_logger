@@ -625,6 +625,44 @@ class TestOverlappingBlocks(unittest.TestCase):
         self.assertEqual(assigned[3]["end_time"], "13:15")
         self.assertEqual(assigned[4]["title"], "[Gradion Intern Academy 2026] Weekly 1-on-1 Sync with Supervisor")
 
+    def test_zero_calendar_full_day_splits_morning_and_afternoon(self):
+        """Zero calendar days with morning and afternoon activity must split into Morning and Afternoon blocks omitting lunch (12:00 - 13:00)."""
+        blocks = []
+        commits = [
+            {"time": "09:30", "subject": "feat: morning commit", "repo": "pilot_timesheet", "prs": []},
+            {"time": "14:30", "subject": "feat: afternoon commit", "repo": "pilot_timesheet", "prs": []}
+        ]
+        prs = []
+
+        assigned = assign_items_to_blocks(blocks, commits, prs, target_date="2026-10-09")
+        # Must have morning and afternoon blocks
+        self.assertGreaterEqual(len(assigned), 2)
+        # Verify no block spans across lunch 12:00 - 13:00
+        for b in assigned:
+            s_min = int(b["start_time"].split(":")[0]) * 60 + int(b["start_time"].split(":")[1])
+            e_min = int(b["end_time"].split(":")[0]) * 60 + int(b["end_time"].split(":")[1])
+            self.assertFalse(s_min < 720 and e_min > 720, f"Block {b['start_time']} - {b['end_time']} spans across lunch break!")
+
+    def test_oversized_workspace_placeholder_does_not_lockout_discrete_blocks(self):
+        """Oversized placeholder blocks (>= 180 min, e.g. 09:00 - 12:00 or 13:00 - 17:00) must not lock out candidate discrete sub-blocks."""
+        from save_entry import is_block_already_blocked
+        existing_blocks = [
+            {"start_time": "09:00", "end_time": "12:00", "title": "Morning Development", "source": "workspace_timesheet"},
+            {"start_time": "13:00", "end_time": "17:00", "title": "Afternoon Development", "source": "workspace_timesheet"}
+        ]
+        # Discrete morning sub-block (09:00 - 09:45)
+        cand_1 = {"start_time": "09:00", "end_time": "09:45", "title": "Setup project"}
+        self.assertFalse(is_block_already_blocked(cand_1, existing_blocks))
+
+        # Discrete afternoon sub-block (13:00 - 13:30)
+        cand_2 = {"start_time": "13:00", "end_time": "13:30", "title": "Code review"}
+        self.assertFalse(is_block_already_blocked(cand_2, existing_blocks))
+
+        # Exact match or discrete already blocked block (e.g. 17:45 - 18:31) should be recognized
+        existing_blocks.append({"start_time": "17:45", "end_time": "18:31", "title": "Wrap up"})
+        cand_3 = {"start_time": "17:45", "end_time": "18:31", "title": "Wrap up"}
+        self.assertTrue(is_block_already_blocked(cand_3, existing_blocks))
+
 
 if __name__ == "__main__":
     unittest.main()

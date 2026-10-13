@@ -88,8 +88,9 @@ def is_block_already_blocked(cand_block: dict, blocked_blocks: list) -> bool:
         if b_dur <= 0:
             continue
 
-        # If existing is an 8+ hr placeholder (e.g. 09:00 - 18:00 Daily Development), it does not count as locked discrete block
-        if b_dur >= 480 and "Daily Development" in b.get("title", ""):
+        # If existing is an oversized placeholder / merged block (>= 180 min, e.g. 09:00-12:00, 13:00-17:00, 09:00-18:00)
+        # and candidate is a discrete sub-block (<= 120 min), it does not count as locked discrete block
+        if b_dur >= 180 and c_dur <= 120:
             continue
 
         # Exact match
@@ -189,12 +190,20 @@ def save_or_update_block_entry(entry_dict: dict, custom_log_path: Path = None) -
         ex_e = to_min(ex_et)
         ex_dur = ex_e - ex_s
 
-        # If existing is a full-day placeholder (>= 8 hours, e.g. 09:00 - 18:00 Daily Development) and current is discrete sub-block
-        if ex_dur >= 480 and current_dur < 480 and ("Daily Development" in matched_text):
-            content = content.replace(matched_text.strip(), "").strip()
-            if not content.endswith("\n\n"):
-                content += "\n\n"
-            break
+        # If existing is an oversized placeholder / merged block (>= 180 min, e.g. 09:00 - 18:00, 09:00 - 12:00, 13:00 - 17:00) and current is discrete sub-block
+        if ex_dur >= 180 and current_dur <= 120:
+            overlap = min(e_min, ex_e) - max(s_min, ex_s)
+            if overlap > 0:
+                if ex_st == start_time or s_min <= ex_s:
+                    content = content.replace(matched_text.strip(), entry_md.strip())
+                    log_path.write_text(content, encoding="utf-8")
+                    print(f"[OK] Replaced oversized placeholder for {date_str} ({ex_st} - {ex_et} -> {start_time} - {end_time}) in {log_path.name}")
+                    return True
+                else:
+                    content = content.replace(matched_text.strip(), "").strip()
+                    if not content.endswith("\n\n"):
+                        content += "\n\n"
+                    break
 
         overlap = min(e_min, ex_e) - max(s_min, ex_s)
         if overlap > 0:
