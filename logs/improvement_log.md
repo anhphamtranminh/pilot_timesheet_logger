@@ -101,3 +101,12 @@ The continuous improvement pattern: **log → review what broke → improve the 
     - When running for today, the pipeline locks and preserves already-recorded intervals intact and only generates entries for remaining unblocked time blocks.
     - Added CLI flags `--remaining-only` (default for today) and `--all` / `--reblock-all` to allow intentional full-day reblocking when requested.
   - Expanded unit test suite with coverage for morning PR isolation, persisted block parsing, overlap detection, and CLI flag handling (71 unit tests passing).
+- **What broke / needed adjustment (End-of-day daily block merge issue):**
+  - On days without Google Calendar events (full development days), fallback logic created a single monolithic 9-hour block spanning `09:00 - 18:00` bridging the mandatory lunch break (`12:00 - 13:00`).
+  - Fallback development blocks had an explicit check `and (b.get("source") != "commits_prs")` in `scripts/prepare_prompt.py` which prevented overloaded blocks with multiple PRs and commits from being subdivided into discrete 30–60 minute focus blocks.
+  - Furthermore, in `scripts/save_entry.py`, `is_block_already_blocked` treated oversized placeholder blocks (e.g., `09:00 - 18:00` or `09:00 - 12:00`) as already blocking any discrete sub-blocks (<= 90 min), locking out refined sub-blocks upon resync.
+- **Improvements made (End-of-day daily block merge fix):**
+  - Separated zero-calendar fallback into distinct `Morning Development` (`09:00 - 12:00`) and `Afternoon Development` (`13:00 - 18:00`), strictly omitting the mandatory lunch break (`12:00 - 13:00`).
+  - Removed the `source != "commits_prs"` restriction so overloaded full-day development blocks are appropriately split into discrete 30–60 min focus sessions mapped to distinct PRs/commits (fixes #57).
+  - Updated `is_block_already_blocked` and `save_timesheet_entry` so oversized placeholder blocks (>= 180 min) do not lock out discrete candidate sub-blocks (<= 120 min) and are cleanly replaced upon re-blocking.
+  - Successfully logged and synchronized 13 discrete blocks for 2026-10-12 to `logs/timesheet_2026-10.md` and Gradion Workspace via MCP `edit_time` and `log_time`.
