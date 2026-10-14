@@ -19,7 +19,7 @@ from pathlib import Path
 # Add parent directory to sys.path to import config
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import find_project_root, load_config
-from format_entry import build_bullet_description, extract_topic_items
+from format_entry import build_bullet_description, extract_topic_items, normalize_repo_name
 
 GRADION_BASE_URL = "https://workspace.gradion.com"
 SKILL_BUNDLE_VERSION = "1.9.0"
@@ -95,10 +95,13 @@ def parse_mcp_entries_text(text: str, target_date: str) -> list:
             clean_title = re.sub(r"\s*\|\s*#[A-Za-z0-9_-]+", "", desc).strip()
             clean_title = re.sub(r"\s*\|\s*Commits:.*", "", clean_title, flags=re.DOTALL).strip()
             clean_title = re.sub(r"\s*\|\s*PRs:.*", "", clean_title).strip()
+            clean_title = re.sub(r"\s*\|\s*PR#\d+.*", "", clean_title).strip()
+            clean_title = re.sub(r"^\[[^\]]+\]\s*", "", clean_title).strip()
             clean_title = re.sub(r"^PRs:\s*[^|]+\|\s*", "", clean_title).strip()
+            clean_title = re.sub(r"^PR#\d+(?:,\s*PR#\d+)*\s*\|\s*", "", clean_title).strip()
             clean_title = re.sub(r"(?:\s*and\s+general\s+engineering\s+activities)+", "", clean_title, flags=re.IGNORECASE).strip()
             lines = [re.sub(r"^[-*•]\s*", "", l).strip() for l in clean_title.splitlines() if l.strip()]
-            lines = [l for l in lines if not l.startswith("PRs:") and not l.startswith("#")]
+            lines = [l for l in lines if not l.startswith("PRs:") and not l.startswith("PR#") and not l.startswith("#")]
             if lines:
                 clean_title = " | ".join(lines)
             else:
@@ -256,7 +259,26 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
     reviews = entry.get("reviews", [])
     comments = entry.get("comments", [])
     clean_prs = [p.strip() for p in prs if p.strip()]
-    pr_prefix = f"PRs: {', '.join(clean_prs)}" if clean_prs else ""
+    formatted_prs = []
+    for p in clean_prs:
+        m_num = re.search(r"(\d+)", p)
+        if m_num:
+            formatted_prs.append(f"PR#{m_num.group(1)}")
+        else:
+            formatted_prs.append(p)
+    pr_prefix = ", ".join(formatted_prs) if formatted_prs else ""
+
+    proj = entry.get("project", "")
+    repos = entry.get("repos", [])
+    if not proj and repos:
+        clean_repos = [normalize_repo_name(r) for r in repos if r and r != "N/A"]
+        if clean_repos:
+            proj = ", ".join(sorted(dict.fromkeys(clean_repos)))
+    if proj:
+        if any(k in proj for k in ["Gradion Intern Academy", "Internal Project"]):
+            proj = ""
+        else:
+            proj = normalize_repo_name(proj)
 
     items = extract_topic_items(desc)
     if not items:
@@ -266,7 +288,8 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
         first = items[0]
         sub_items = items[1:]
 
-    first_line = f"{pr_prefix} | {first}" if pr_prefix else first
+    lead_prefix = f"[{proj}] {pr_prefix}" if proj and pr_prefix else (f"[{proj}]" if proj else pr_prefix)
+    first_line = f"{lead_prefix} | {first}" if lead_prefix else first
     bullet_items = [f"- {it}" for it in sub_items]
 
     if commits:

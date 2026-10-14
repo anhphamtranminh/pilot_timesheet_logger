@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prepare_prompt import generate_ai_payload
 from run_pipeline import fallback_topic_grouping
-from format_entry import format_single_entry
+from format_entry import format_single_entry, normalize_repo_name
 from save_entry import get_existing_blocked_intervals, is_block_already_blocked
 from track_tokens import estimate_tokens
 from config import resolve_target_date, extract_time_args
@@ -146,12 +146,11 @@ def run_workflow_test(
         topic = synthesized_topics[b_id]
         block_project = ""
         b_proj = b.get("project", "")
+        block_repos = [normalize_repo_name(r) for r in b.get("repos", []) if r and r != "N/A"]
         if b_proj and not any(k in b_proj for k in ["Gradion Intern Academy", "Internal Project"]):
-            block_project = b_proj
-        elif is_multi_project:
-            block_repos = b.get("repos", [])
-            if block_repos:
-                block_project = ", ".join(sorted(block_repos))
+            block_project = normalize_repo_name(b_proj)
+        elif block_repos:
+            block_project = ", ".join(sorted(dict.fromkeys(block_repos)))
 
         md = format_single_entry(
             date=target_date,
@@ -162,7 +161,7 @@ def run_workflow_test(
             issues=b.get("issues", []),
             project=block_project,
             source_title=b.get("title", ""),
-            repos=b.get("repos", []),
+            repos=block_repos or b.get("repos", []),
             commit_subjects=b.get("commit_subjects", []),
             reviews=b.get("reviews", []),
             comments=b.get("comments", []),
