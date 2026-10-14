@@ -110,3 +110,22 @@ The continuous improvement pattern: **log → review what broke → improve the 
   - Removed the `source != "commits_prs"` restriction so overloaded full-day development blocks are appropriately split into discrete 30–60 min focus sessions mapped to distinct PRs/commits (fixes #57).
   - Updated `is_block_already_blocked` and `save_timesheet_entry` so oversized placeholder blocks (>= 180 min) do not lock out discrete candidate sub-blocks (<= 120 min) and are cleanly replaced upon re-blocking.
   - Successfully logged and synchronized 13 discrete blocks for 2026-10-12 to `logs/timesheet_2026-10.md` and Gradion Workspace via MCP `edit_time` and `log_time`.
+
+### Tue 13 Oct 2026
+- **What happened:**
+  - Intern arrived late and started workday at 14:30 due to morning leave.
+  - Triggered timesheet logging using natural language: `"log today but I went to work at 14h30"`.
+  - Handled attendance at `[Intern Academy 2026] Catch-up & Report about Assignment 2` and `Emergency Meeting SE Team 1`.
+- **What broke / needed adjustment:**
+  - The pipeline assumed a standard 09:00 workday start by default, generating artificial morning blocks (`09:00 - 12:00`) and early afternoon blocks (`13:00 - 14:30`) even when the user arrived late.
+  - There was no CLI support or natural language parsing for custom workday start or end times (`--start-time`, `--end-time`).
+- **Improvements made:**
+  - Added `--start-time` and `--end-time` parameters to `scripts/prepare_prompt.py` and `scripts/run_pipeline.py`.
+  - Implemented natural language regex parsing for workday start and end expressions (e.g. `went to work at 14h30`, `at 14:30`, `until 18:00`), normalizing `14h30` and `14h` to standard `14:30`.
+  - Updated `scripts/config.py` to extract target dates and relative keywords from conversational commands.
+  - Filtered all git commits, PRs, issues, reviews, comments, and calendar events against the custom start/end filter bounds, suppressing morning filler blocks when start time is in the afternoon ($\ge 12:00$).
+  - Post-processed generated blocks to trim boundaries strictly within the start/end window and ensure all blocks are $\le 90$ minutes.
+  - Maintained full backwards-compatible signatures in `run_daily_timesheet` and added unit test coverage in `tests/test_workflow_runner.py`.
+  - Accurately logged 4 discrete blocks for 2026-10-13 starting at 14:30 to `logs/timesheet_2026-10.md` and synchronized to Gradion Workspace.
+  - Consumed 174 total tokens (124 input, 50 output), achieving 49.7% of the 350 daily token budget.
+
