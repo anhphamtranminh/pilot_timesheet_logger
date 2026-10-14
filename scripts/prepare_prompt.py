@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fetch_git import fetch_all_commits
 from fetch_prs import fetch_all_prs, fetch_all_comments_and_reviews, fetch_all_issues, summarize_discussions
 from fetch_calendar import fetch_all_events
-from config import resolve_target_date
+from config import resolve_target_date, extract_time_args
 
 
 MEETING_KEYWORDS = [
@@ -1728,7 +1728,7 @@ def generate_ai_payload(target_date: str, start_time: str = None, end_time: str 
 
 def main():
     parser = argparse.ArgumentParser(description="Prepare minimal token payload for AI step.")
-    parser.add_argument("date_pos", nargs="?", default=None, help="Target date YYYY-MM-DD or 'yesterday' (optional positional argument)")
+    parser.add_argument("date_pos", nargs="*", default=[], help="Target date YYYY-MM-DD, 'yesterday', or time argument(s) like 14:30 (optional positional arguments)")
     parser.add_argument("--date", default=None, help="Target date YYYY-MM-DD or 'yesterday'")
     parser.add_argument("--start-time", help="Custom workday start time (e.g. 14:30 or 14h30)")
     parser.add_argument("--end-time", help="Custom workday end time (e.g. 18:00 or 18h00)")
@@ -1742,14 +1742,11 @@ def main():
     end_time = args.end_time
 
     full_cmd_str = " ".join(sys.argv)
+    parsed_start, parsed_end = extract_time_args(args.date_pos, full_cmd_str)
     if not start_time:
-        m_start = re.search(r"(?:start(?:ed|ing)?|from|at|went to work at|arrived at)\s+([0-2]?\d(?:[:hH][0-5]\d|h|\b))", full_cmd_str, re.IGNORECASE)
-        if m_start:
-            start_time = m_start.group(1)
+        start_time = parsed_start
     if not end_time:
-        m_end = re.search(r"(?:end(?:ed|ing)?|until|to|leave at|left at)\s+([0-2]?\d(?:[:hH][0-5]\d|h|\b))", full_cmd_str, re.IGNORECASE)
-        if m_end:
-            end_time = m_end.group(1)
+        end_time = parsed_end
 
     payload = generate_ai_payload(target_date, start_time=start_time, end_time=end_time)
     indent = 2 if args.pretty else None

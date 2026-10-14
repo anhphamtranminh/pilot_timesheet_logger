@@ -19,7 +19,7 @@ from run_pipeline import fallback_topic_grouping
 from format_entry import format_single_entry
 from save_entry import get_existing_blocked_intervals, is_block_already_blocked
 from track_tokens import estimate_tokens
-from config import resolve_target_date
+from config import resolve_target_date, extract_time_args
 
 
 # ANSI colors for terminal output
@@ -46,7 +46,9 @@ def run_workflow_test(
     custom_topics: dict = None,
     live: bool = False,
     sync_workspace: bool = False,
-    remaining_only: bool = None
+    remaining_only: bool = None,
+    start_time: str = None,
+    end_time: str = None
 ):
     mode_str = "LIVE EXECUTION (Disk & Workspace)" if live else "DRY-RUN SIMULATION (No file or API writes)"
     print_banner(target_date, mode_str)
@@ -55,7 +57,7 @@ def run_workflow_test(
     # Step 1: Data Harvesting
     # -------------------------------------------------------------
     print(f"{BOLD}{BLUE}[Step 1/5] Extracting Data (Git, GitHub PRs, Calendar/Workspace)...{RESET}")
-    payload = generate_ai_payload(target_date)
+    payload = generate_ai_payload(target_date, start_time=start_time, end_time=end_time)
     blocks = payload.get("blocks", [])
 
     today_str = datetime.date.today().isoformat()
@@ -201,24 +203,44 @@ def run_workflow_test(
     else:
         from run_pipeline import run_daily_timesheet
         print(f" {GREEN}Executing live timesheet persistence...{RESET}")
-        run_daily_timesheet(target_date, dry_run=False, custom_topics=synthesized_topics, sync_workspace=sync_workspace, remaining_only=remaining_only)
+        run_daily_timesheet(
+            target_date,
+            dry_run=False,
+            custom_topics=synthesized_topics,
+            sync_workspace=sync_workspace,
+            remaining_only=remaining_only,
+            start_time=start_time,
+            end_time=end_time
+        )
         print(f" {GREEN}[OK] Timesheet saved and synced successfully.{RESET}")
     print(f"{BOLD}{CYAN}{'=' * 78}{RESET}\n")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Test and visualize the AI timesheet logging workflow.")
-    parser.add_argument("date_pos", nargs="?", default=None, help="Target date YYYY-MM-DD or 'yesterday' (optional positional argument)")
+    parser.add_argument("date_pos", nargs="*", default=[], help="Target date YYYY-MM-DD, 'yesterday', or time argument(s) like 14:30 (optional positional arguments)")
     parser.add_argument("--date", default=None, help="Target date YYYY-MM-DD or 'yesterday'")
     parser.add_argument("--live", action="store_true", help="Perform live save to markdown and sync to Workspace")
     parser.add_argument("--sync-workspace", action="store_true", help="Sync to Gradion Workspace (if --live is enabled)")
     parser.add_argument("--topics-json", help="Optional JSON string of custom topic summaries")
     parser.add_argument("--remaining-only", action="store_true", default=None, help="Only test remaining unblocked time blocks")
     parser.add_argument("--all", "--reblock-all", dest="reblock_all", action="store_true", help="Test all time blocks from the beginning of the day")
+    parser.add_argument("--start-time", help="Custom workday start time (e.g. 14:30 or 14h30)")
+    parser.add_argument("--end-time", help="Custom workday end time (e.g. 18:00 or 18h00)")
     args = parser.parse_args()
 
     raw_date = args.date or args.date_pos
     target_date = resolve_target_date(raw_date)
+
+    start_time = args.start_time
+    end_time = args.end_time
+
+    full_cmd_str = " ".join(sys.argv)
+    parsed_start, parsed_end = extract_time_args(args.date_pos, full_cmd_str)
+    if not start_time:
+        start_time = parsed_start
+    if not end_time:
+        end_time = parsed_end
 
     remaining_only = None
     if args.reblock_all:
@@ -233,7 +255,15 @@ def main():
         except json.JSONDecodeError as e:
             print(f"[WARN] Failed to parse custom topics: {e}", file=sys.stderr)
 
-    run_workflow_test(target_date, custom_topics=custom_topics, live=args.live, sync_workspace=args.sync_workspace, remaining_only=remaining_only)
+    run_workflow_test(
+        target_date,
+        custom_topics=custom_topics,
+        live=args.live,
+        sync_workspace=args.sync_workspace,
+        remaining_only=remaining_only,
+        start_time=start_time,
+        end_time=end_time
+    )
 
 
 if __name__ == "__main__":
