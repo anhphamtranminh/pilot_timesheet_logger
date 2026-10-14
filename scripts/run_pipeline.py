@@ -12,7 +12,7 @@ from pathlib import Path
 # Add parent directory to sys.path to import modules
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prepare_prompt import generate_ai_payload
-from format_entry import format_single_entry
+from format_entry import format_single_entry, normalize_repo_name
 from save_entry import (
     save_or_update_block_entry,
     get_existing_blocked_intervals,
@@ -159,12 +159,11 @@ def run_daily_timesheet(
 
         block_project = ""
         b_proj = b.get("project", "")
+        block_repos = [normalize_repo_name(r) for r in b.get("repos", []) if r and r != "N/A"]
         if b_proj and not any(k in b_proj for k in ["Gradion Intern Academy", "Internal Project"]):
-            block_project = b_proj
-        elif is_multi_project:
-            block_repos = b.get("repos", [])
-            if block_repos:
-                block_project = ", ".join(sorted(block_repos))
+            block_project = normalize_repo_name(b_proj)
+        elif block_repos:
+            block_project = ", ".join(sorted(dict.fromkeys(block_repos)))
 
         entry_dict = {
             "date": target_date,
@@ -174,7 +173,7 @@ def run_daily_timesheet(
             "prs": prs,
             "issues": issues,
             "source_title": cal_title,
-            "repos": b.get("repos", []),
+            "repos": block_repos or b.get("repos", []),
             "commit_subjects": commits,
             "reviews": b.get("reviews", []),
             "comments": b.get("comments", []),

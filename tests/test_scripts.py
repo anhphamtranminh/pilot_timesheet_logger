@@ -124,8 +124,8 @@ END:VCALENDAR"""
         self.assertIn("- **Date:** 2026-10-06", entry_md)
         self.assertIn("- **Start time:** 09:00", entry_md)
         self.assertIn("- **End time:** 12:00", entry_md)
-        # Single concise topic must stay on one line without bullets
-        self.assertIn("- **Description:** PRs: #101, #102 | Timesheet pipeline scaffolding and calendar integration", entry_md)
+        # Single concise topic must stay on one line without bullets, prefixed with [repo]
+        self.assertIn("- **Description:** [pilot-timesheet] PR#101, PR#102 | Timesheet pipeline scaffolding and calendar integration", entry_md)
         self.assertNotIn("  - PRs:", entry_md)
         self.assertIn("- **Source Trace:**", entry_md)
         self.assertIn("Morning Sprint Block", entry_md)
@@ -139,9 +139,20 @@ END:VCALENDAR"""
             topic_summary="Workspace timesheet integration | Interactive workflow test runner | Comprehensive README documentation",
             prs=["#11", "#12"]
         )
-        self.assertIn("- **Description:** PRs: #11, #12 | Workspace timesheet integration", entry_md)
+        self.assertIn("- **Description:** PR#11, PR#12 | Workspace timesheet integration", entry_md)
         self.assertIn("  - Interactive workflow test runner", entry_md)
         self.assertIn("  - Comprehensive README documentation", entry_md)
+
+        # Single PR with repo
+        entry_single_pr = format_single_entry(
+            date="2026-10-08",
+            start_time="08:50",
+            end_time="10:30",
+            topic_summary="Workspace timesheet integration",
+            prs=["#11"],
+            repos=["pilot_timesheet"]
+        )
+        self.assertIn("- **Description:** [pilot-timesheet] PR#11 | Workspace timesheet integration", entry_single_pr)
 
         # Without PRs
         entry_no_prs = format_single_entry(

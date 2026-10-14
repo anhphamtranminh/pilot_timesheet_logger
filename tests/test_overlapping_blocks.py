@@ -222,7 +222,7 @@ class TestOverlappingBlocks(unittest.TestCase):
         self.assertIn("edit_time", endpoint)
         self.assertEqual(kwargs.get("method"), "POST")
         self.assertEqual(kwargs["data"]["arguments"]["entryId"], "uuid-entry-1234")
-        self.assertIn("PRs: #1, #10", kwargs["data"]["arguments"]["description"])
+        self.assertIn("PR#1, PR#10", kwargs["data"]["arguments"]["description"])
 
     @patch("fetch_workspace_timesheet.resolve_gradion_token", return_value="dummy-token")
     @patch("fetch_workspace_timesheet.fetch_workspace_timesheet_blocks")
@@ -288,7 +288,7 @@ class TestOverlappingBlocks(unittest.TestCase):
         desc = mock_req.call_args[1]["data"]["arguments"]["description"]
         self.assertIn("Architecture refactor", desc)
         self.assertIn("Commits: refactor(skills): remove duplicates (fixes #3)", desc)
-        self.assertIn("PRs: #3", desc)
+        self.assertIn("PR#3", desc)
 
     def test_split_oversized_development_block(self):
         """Oversized development blocks exceeding 105 min with multiple PRs/commits must be split into sub-blocks."""
@@ -406,7 +406,7 @@ class TestOverlappingBlocks(unittest.TestCase):
             "feat(agy): streamline Antigravity log trigger"
         )
         lines = format_description(raw_topic, prs=["#10", "#11"])
-        self.assertEqual(lines[0], "- **Description:** PRs: #10, #11 | Include commits and PRs in timesheet entry")
+        self.assertEqual(lines[0], "- **Description:** PR#10, PR#11 | Include commits and PRs in timesheet entry")
         # Sub items should be capped at at most 2 bullets
         self.assertEqual(len(lines), 3)
         self.assertEqual(lines[1], "  - Prevent duplicate general engineering activities phrasing")

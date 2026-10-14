@@ -7,13 +7,27 @@ import re
 import sys
 
 
+def normalize_repo_name(repo: str) -> str:
+    """Normalize repository name to kebab-case (e.g. pilot_timesheet -> pilot-timesheet)."""
+    if not repo:
+        return ""
+    r = repo.strip()
+    if r in ("pilot_timesheet", "pilot_timesheet_logger", "pilot-timesheet-logger"):
+        return "pilot-timesheet"
+    if " " in r:
+        return r
+    return r.replace("_", "-")
+
+
 def extract_topic_items(topic_summary: str) -> list:
     """Extract distinct topic items from a topic summary string."""
     raw_topic = (topic_summary or "").strip()
     raw_topic = re.sub(r"^\[[^\]]+\]\s*", "", raw_topic).strip()
     raw_topic = re.sub(r"^PRs:\s*[^|]+\|\s*", "", raw_topic).strip()
+    raw_topic = re.sub(r"^PR#\d+(?:,\s*PR#\d+)*\s*\|\s*", "", raw_topic).strip()
     raw_topic = re.sub(r"^Issues:\s*[^|]+\|\s*", "", raw_topic).strip()
     raw_topic = re.sub(r"\s*\|\s*PRs:.*$", "", raw_topic).strip()
+    raw_topic = re.sub(r"\s*\|\s*PR#\d+.*$", "", raw_topic).strip()
     raw_topic = re.sub(r"\s*\|\s*Issues:.*$", "", raw_topic).strip()
     raw_topic = re.sub(r"\s*\|\s*Commits:.*$", "", raw_topic, flags=re.DOTALL).strip()
 
@@ -29,7 +43,7 @@ def extract_topic_items(topic_summary: str) -> list:
             clean_l = re.sub(r"^(?:feat|fix|docs|chore|refactor|test|style|perf|build|ci)(?:\([^)]+\))?:\s*", "", clean_l, flags=re.IGNORECASE).strip()
             clean_l = re.sub(r"\s*\((?:fixes|closes|refs)?\s*#\d+\)", "", clean_l, flags=re.IGNORECASE).strip()
             clean_l = re.sub(r"\s*\(#\d+\)", "", clean_l).strip()
-            if clean_l and not clean_l.startswith("PRs:") and not clean_l.startswith("Issues:") and not clean_l.startswith("Commits:"):
+            if clean_l and not clean_l.startswith("PRs:") and not clean_l.startswith("PR#") and not clean_l.startswith("Issues:") and not clean_l.startswith("Commits:"):
                 clean_l = clean_l[0].upper() + clean_l[1:]
                 if clean_l not in items:
                     items.append(clean_l)
@@ -50,7 +64,7 @@ def extract_topic_items(topic_summary: str) -> list:
             clean_p = re.sub(r"^(?:feat|fix|docs|chore|refactor|test|style|perf|build|ci)(?:\([^)]+\))?:\s*", "", clean_p, flags=re.IGNORECASE).strip()
             clean_p = re.sub(r"\s*\((?:fixes|closes|refs)?\s*#\d+\)", "", clean_p, flags=re.IGNORECASE).strip()
             clean_p = re.sub(r"\s*\(#\d+\)", "", clean_p).strip()
-            if clean_p and not clean_p.startswith("PRs:") and not clean_p.startswith("Issues:") and not clean_p.startswith("Commits:"):
+            if clean_p and not clean_p.startswith("PRs:") and not clean_p.startswith("PR#") and not clean_p.startswith("Issues:") and not clean_p.startswith("Commits:"):
                 clean_p = clean_p[0].upper() + clean_p[1:]
                 if clean_p not in items:
                     items.append(clean_p)
@@ -83,20 +97,34 @@ def format_description(
         m_proj = re.match(r"^\[([^\]]+)\]\s*", topic_summary.strip())
         if m_proj:
             proj = m_proj.group(1).strip()
+    if proj:
+        proj = normalize_repo_name(proj)
 
     if not clean_prs and topic_summary:
         m = re.search(r"\bPRs:\s*([^|]+)", topic_summary)
         if m:
             clean_prs = [p.strip() for p in m.group(1).split(",") if p.strip()]
+        else:
+            m_pr = re.findall(r"\bPR#(\d+)", topic_summary)
+            if m_pr:
+                clean_prs = [f"#{n}" for n in m_pr]
 
     if not clean_issues and topic_summary:
         m = re.search(r"\bIssues:\s*([^|]+)", topic_summary)
         if m:
             clean_issues = [i.strip() for i in m.group(1).split(",") if i.strip()]
 
+    formatted_prs = []
+    for p in clean_prs:
+        m_num = re.search(r"(\d+)", p)
+        if m_num:
+            formatted_prs.append(f"PR#{m_num.group(1)}")
+        else:
+            formatted_prs.append(p)
+
     prefixes = []
-    if clean_prs:
-        prefixes.append(f"PRs: {', '.join(clean_prs)}")
+    if formatted_prs:
+        prefixes.append(", ".join(formatted_prs))
     if clean_issues:
         prefixes.append(f"Issues: {', '.join(clean_issues)}")
     joined_prefix = " | ".join(prefixes)
@@ -191,12 +219,19 @@ def format_single_entry(
         m_proj = re.match(r"^\[([^\]]+)\]\s*", topic_summary.strip())
         if m_proj:
             proj = m_proj.group(1).strip()
+    if not proj and repos:
+        clean_repos = [normalize_repo_name(r) for r in repos if r and r != "N/A"]
+        if clean_repos:
+            proj = ", ".join(sorted(dict.fromkeys(clean_repos)))
+    if proj:
+        proj = normalize_repo_name(proj)
 
     desc_lines = format_description(topic_summary, prs=prs, issues=issues, project=proj)
 
     first_sentence = (topic_summary or "Engineering Work").split('\n')[0].split('.')[0].strip()
     first_sentence = re.sub(r"^\[[^\]]+\]\s*", "", first_sentence).strip()
     first_sentence = re.sub(r"^PRs:\s*[^|]+\|\s*", "", first_sentence).strip()
+    first_sentence = re.sub(r"^PR#\d+(?:,\s*PR#\d+)*\s*\|\s*", "", first_sentence).strip()
     first_sentence = re.sub(r"^Issues:\s*[^|]+\|\s*", "", first_sentence).strip()
     first_sentence = re.sub(r"^(?:feat|fix|docs|chore|refactor|test|style|perf|build|ci)(?:\([^)]+\))?:\s*", "", first_sentence, flags=re.IGNORECASE).strip()
     first_sentence = re.sub(r"\s*\((?:fixes|closes|refs)?\s*#\d+\)", "", first_sentence, flags=re.IGNORECASE).strip()
@@ -211,10 +246,11 @@ def format_single_entry(
     if proj and not header_title.startswith(f"[{proj}]"):
         header_title = f"[{proj}] {header_title}"
 
+    norm_repos = [normalize_repo_name(r) for r in repos if r and r != "N/A"]
     source_trace_lines = [
         "- **Source Trace:**",
         f"  - *Calendar / Activity:* {source_title or 'General Work Block'}",
-        f"  - *Repos:* {', '.join(repos) if repos else 'N/A'}",
+        f"  - *Repos:* {', '.join(norm_repos) if norm_repos else ('N/A' if not repos else ', '.join(repos))}",
         f"  - *Commits:* {'; '.join(commit_subjects) if commit_subjects else 'None'}",
     ]
     if issues:
