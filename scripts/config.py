@@ -81,11 +81,19 @@ def load_config() -> dict:
 def resolve_target_date(date_str: str = None) -> str:
     """Normalize date argument, supporting YYYY-MM-DD, 'yesterday', 'today', or default today."""
     import datetime
+    import re
     if not date_str or not str(date_str).strip() or str(date_str).strip().lower() in ("today", "now"):
         return datetime.date.today().isoformat()
     clean = str(date_str).strip().lower()
     if clean == "yesterday":
         return (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    m_iso = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", clean)
+    if m_iso:
+        return m_iso.group(1)
+    if "yesterday" in clean:
+        return (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    if "today" in clean:
+        return datetime.date.today().isoformat()
     return str(date_str).strip()
 
 

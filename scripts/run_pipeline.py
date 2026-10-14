@@ -100,10 +100,12 @@ def run_daily_timesheet(
     dry_run: bool = False,
     custom_topics: dict = None,
     sync_workspace: bool = False,
-    remaining_only: bool = None
+    remaining_only: bool = None,
+    start_time: str = None,
+    end_time: str = None
 ) -> list:
     """Run timesheet generation pipeline for target_date."""
-    payload = generate_ai_payload(target_date)
+    payload = generate_ai_payload(target_date, start_time=start_time, end_time=end_time)
     blocks = payload.get("blocks", [])
     formatted_entries = []
 
@@ -223,6 +225,8 @@ def main():
     parser.add_argument("--sync-workspace", action="store_true", help="Sync entry to Gradion Workspace Timesheet app")
     parser.add_argument("--remaining-only", action="store_true", default=None, help="Only process and log remaining unblocked time blocks")
     parser.add_argument("--all", "--reblock-all", dest="reblock_all", action="store_true", help="Reblock and update all time blocks for the day from the beginning")
+    parser.add_argument("--start-time", help="Custom workday start time (e.g. 14:30 or 14h30)")
+    parser.add_argument("--end-time", help="Custom workday end time (e.g. 18:00 or 18h00)")
     args = parser.parse_args()
 
     raw_date = args.date or args.date_pos
@@ -234,6 +238,19 @@ def main():
     elif args.remaining_only:
         remaining_only = True
 
+    start_time = args.start_time
+    end_time = args.end_time
+
+    full_cmd_str = " ".join(sys.argv)
+    if not start_time:
+        m_start = re.search(r"(?:start(?:ed|ing)?|from|at|went to work at|arrived at)\s+([0-2]?\d(?:[:hH][0-5]\d|h|\b))", full_cmd_str, re.IGNORECASE)
+        if m_start:
+            start_time = m_start.group(1)
+    if not end_time:
+        m_end = re.search(r"(?:end(?:ed|ing)?|until|to|leave at|left at)\s+([0-2]?\d(?:[:hH][0-5]\d|h|\b))", full_cmd_str, re.IGNORECASE)
+        if m_end:
+            end_time = m_end.group(1)
+
     custom_topics = None
     if args.topics_json:
         try:
@@ -241,10 +258,15 @@ def main():
         except json.JSONDecodeError as e:
             print(f"[WARN] Failed to parse --topics-json: {e}. Using fallback grouping.", file=sys.stderr)
 
+    extra_kwargs = {}
     if remaining_only is not None:
-        run_daily_timesheet(target_date, args.dry_run, custom_topics, args.sync_workspace, remaining_only=remaining_only)
-    else:
-        run_daily_timesheet(target_date, args.dry_run, custom_topics, args.sync_workspace)
+        extra_kwargs["remaining_only"] = remaining_only
+    if start_time is not None:
+        extra_kwargs["start_time"] = start_time
+    if end_time is not None:
+        extra_kwargs["end_time"] = end_time
+
+    run_daily_timesheet(target_date, args.dry_run, custom_topics, args.sync_workspace, **extra_kwargs)
 
 
 if __name__ == "__main__":
