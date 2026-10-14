@@ -25,7 +25,8 @@ When activated by `log`, first run the pipeline in dry-run preview mode without 
 ```bash
 python3 scripts/run_pipeline.py --dry-run
 ```
-*(If logging for a specific past date, append `--date YYYY-MM-DD`)*
+*(If logging for a specific past date, append `--date YYYY-MM-DD` or pass as positional argument `2026-10-13`)*
+*(If custom start or end times are specified, e.g. `log 14:30`, `log 14:30-18:00`, or `log from 14h30`, pass directly as positional arguments or flags `--start-time HH:MM` / `--end-time HH:MM`)*
 
 Present the formatted markdown preview to the user and request confirmation via `ask_question`. Upon confirmation, execute live persistence with workspace synchronization:
 ```bash

@@ -155,6 +155,54 @@ class TestWorkflowRunner(unittest.TestCase):
         today_iso = datetime.date.today().isoformat()
         mock_run.assert_called_once_with(today_iso, True, None, False, start_time="14h30")
 
+    @patch("run_pipeline.run_daily_timesheet")
+    def test_pipeline_main_positional_time_only(self, mock_run):
+        """Test that run_pipeline.py 14:30 defaults date to today and start_time to 14:30."""
+        from run_pipeline import main as pipeline_main
+        with patch("sys.argv", ["run_pipeline.py", "14:30", "--dry-run"]):
+            pipeline_main()
+        import datetime
+        today_iso = datetime.date.today().isoformat()
+        mock_run.assert_called_once_with(today_iso, True, None, False, start_time="14:30")
+
+    @patch("run_pipeline.run_daily_timesheet")
+    def test_pipeline_main_positional_time_range(self, mock_run):
+        """Test that run_pipeline.py 14:30-18:00 extracts start and end times."""
+        from run_pipeline import main as pipeline_main
+        with patch("sys.argv", ["run_pipeline.py", "14:30-18:00", "--dry-run"]):
+            pipeline_main()
+        import datetime
+        today_iso = datetime.date.today().isoformat()
+        mock_run.assert_called_once_with(today_iso, True, None, False, start_time="14:30", end_time="18:00")
+
+    @patch("run_pipeline.run_daily_timesheet")
+    def test_pipeline_main_positional_start_and_end(self, mock_run):
+        """Test that run_pipeline.py 14:30 18:00 extracts both positional tokens."""
+        from run_pipeline import main as pipeline_main
+        with patch("sys.argv", ["run_pipeline.py", "14:30", "18:00", "--dry-run"]):
+            pipeline_main()
+        import datetime
+        today_iso = datetime.date.today().isoformat()
+        mock_run.assert_called_once_with(today_iso, True, None, False, start_time="14:30", end_time="18:00")
+
+    @patch("run_pipeline.run_daily_timesheet")
+    def test_pipeline_main_positional_date_and_time(self, mock_run):
+        """Test that run_pipeline.py 2026-10-13 14:30 extracts date and start time."""
+        from run_pipeline import main as pipeline_main
+        with patch("sys.argv", ["run_pipeline.py", "2026-10-13", "14:30", "--dry-run"]):
+            pipeline_main()
+        mock_run.assert_called_once_with("2026-10-13", True, None, False, start_time="14:30")
+
+    def test_extract_time_args_unit(self):
+        """Test extract_time_args with various positional inputs and formats."""
+        from config import extract_time_args
+        self.assertEqual(extract_time_args(["14:30"]), ("14:30", None))
+        self.assertEqual(extract_time_args(["14:30", "18:00"]), ("14:30", "18:00"))
+        self.assertEqual(extract_time_args(["14:30-18:00"]), ("14:30", "18:00"))
+        self.assertEqual(extract_time_args(["14h30", "18h00"]), ("14h30", "18h00"))
+        self.assertEqual(extract_time_args(["2026-10-13", "14:30"]), ("14:30", None))
+        self.assertEqual(extract_time_args([], "log at 14:30 until 18:00"), ("14:30", "18:00"))
+
 
 if __name__ == "__main__":
     unittest.main()

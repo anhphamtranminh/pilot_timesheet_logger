@@ -10,7 +10,8 @@ Whenever the user types `log`, `/log`, `/timesheet`, or asks to "log today's wor
    ```bash
    python3 scripts/run_pipeline.py --dry-run
    ```
-   *(If logging for a specific past date, append `--date YYYY-MM-DD`)*
+   *(If logging for a specific past date, append `--date YYYY-MM-DD` or pass as positional argument `2026-10-13`)*
+   *(If custom start or end times are specified, e.g. `log 14:30`, `log 14:30-18:00`, or `log from 14h30`, pass directly as positional arguments or flags `--start-time HH:MM` / `--end-time HH:MM`)*
 
 2. **Present the formatted Markdown preview of the day's time blocks to the user.**
 
@@ -24,7 +25,7 @@ Whenever the user types `log`, `/log`, `/timesheet`, or asks to "log today's wor
    ```bash
    python3 scripts/run_pipeline.py --sync-workspace
    ```
-   *(If logging for a specific past date, append `--date YYYY-MM-DD`)*
+   *(If logging for a specific past date or custom times, preserve the date and time arguments)*
 
    *(Optional topic synthesis: if custom synthesized topics are requested, pass `--topics-json '{"1": "<Synthesized Topic Sentence>"}'` to `run_pipeline.py --sync-workspace`)*
 
