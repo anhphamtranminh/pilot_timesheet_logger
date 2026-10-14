@@ -166,9 +166,29 @@ def split_time_range(
     return result
 
 
+def normalize_time_str(time_str: str) -> str:
+    """Normalize time format like '14h30', '14h', or '14:30' into 'HH:MM'."""
+    if not time_str:
+        return ""
+    s = str(time_str).strip()
+    s = re.sub(r"[hH](\d{1,2})?$", lambda m: f":{m.group(1).zfill(2)}" if m.group(1) else ":00", s)
+    parts = s.split(":")
+    if len(parts) == 2:
+        try:
+            h = int(parts[0])
+            m = int(parts[1])
+            return f"{h:02d}:{m:02d}"
+        except ValueError:
+            pass
+    return time_str
+
+
 def time_to_minutes(time_str: str) -> int:
-    """Convert HH:MM string to minutes since midnight."""
-    parts = time_str.split(":")
+    """Convert HH:MM or HHhMM string to minutes since midnight."""
+    if not time_str:
+        return 0
+    norm = normalize_time_str(time_str)
+    parts = norm.split(":")
     if len(parts) >= 2:
         try:
             return int(parts[0]) * 60 + int(parts[1])
@@ -184,7 +204,9 @@ def assign_items_to_blocks(
     target_date: str = None,
     comments: list = None,
     reviews: list = None,
-    issues: list = None
+    issues: list = None,
+    start_time: str = None,
+    end_time: str = None
 ) -> list:
     """Assign commits, PRs, comments, reviews, and issues to the time blocks based on timestamps and block metadata."""
     comments = comments or []
@@ -194,14 +216,47 @@ def assign_items_to_blocks(
     now_dt = datetime.datetime.now()
     now_min = now_dt.hour * 60 + now_dt.minute
 
+    start_filter_min = time_to_minutes(start_time) if start_time else None
+    end_filter_min = time_to_minutes(end_time) if end_time else None
+
     # Filter out calendar events that are lunch blocks or leave/time off
     morning_leave = False
     afternoon_leave = False
+    if start_filter_min is not None and start_filter_min >= 720:
+        morning_leave = True
+    if end_filter_min is not None and end_filter_min <= 780:
+        afternoon_leave = True
+
+    if start_filter_min is not None:
+        commits = [c for c in commits if (time_to_minutes(c.get("time", "")) >= start_filter_min) or (not time_to_minutes(c.get("time", "")) and start_filter_min < 720)]
+        prs = [p for p in prs if (time_to_minutes(p.get("time", "")) >= start_filter_min) or (not time_to_minutes(p.get("time", "")) and start_filter_min < 720)]
+        issues = [i for i in issues if (time_to_minutes(i.get("time", "")) >= start_filter_min) or (not time_to_minutes(i.get("time", "")) and start_filter_min < 720)]
+        comments = [c for c in comments if time_to_minutes(c.get("time", "")) >= start_filter_min]
+        reviews = [r for r in reviews if time_to_minutes(r.get("time", "")) >= start_filter_min]
+
+    if end_filter_min is not None:
+        commits = [c for c in commits if (time_to_minutes(c.get("time", "")) <= end_filter_min) or not time_to_minutes(c.get("time", ""))]
+        prs = [p for p in prs if (time_to_minutes(p.get("time", "")) <= end_filter_min) or not time_to_minutes(p.get("time", ""))]
+        issues = [i for i in issues if (time_to_minutes(i.get("time", "")) <= end_filter_min) or not time_to_minutes(i.get("time", ""))]
+        comments = [c for c in comments if time_to_minutes(c.get("time", "")) <= end_filter_min]
+        reviews = [r for r in reviews if time_to_minutes(r.get("time", "")) <= end_filter_min]
+
     filtered_blocks = []
     for b in blocks:
         st_m = time_to_minutes(b.get("start_time", "09:00"))
         et_m = time_to_minutes(b.get("end_time", "12:00"))
-        t = b.get("title", "")
+        if start_filter_min is not None and et_m <= start_filter_min:
+            continue
+        if end_filter_min is not None and st_m >= end_filter_min:
+            continue
+        b_copy = dict(b)
+        if start_filter_min is not None and st_m < start_filter_min:
+            st_m = start_filter_min
+            b_copy["start_time"] = f"{st_m // 60:02d}:{st_m % 60:02d}"
+        if end_filter_min is not None and et_m > end_filter_min:
+            et_m = end_filter_min
+            b_copy["end_time"] = f"{et_m // 60:02d}:{et_m % 60:02d}"
+        t = b_copy.get("title", "")
         if is_leave_event(t):
             m_leave, a_leave = get_leave_period(t, st_m, et_m)
             if m_leave:
@@ -211,7 +266,7 @@ def assign_items_to_blocks(
             continue
         if is_lunch_block(t, st_m, et_m):
             continue
-        filtered_blocks.append(b)
+        filtered_blocks.append(b_copy)
 
     # Ensure no blocks overlap lunch break (12:00 - 13:00 / 720 - 780 minutes) or leave periods
     normalized_blocks = []
@@ -304,13 +359,13 @@ def assign_items_to_blocks(
         morning_commits or morning_prs or morning_issues or morning_comments or morning_reviews or morning_cal
         or (unspecified_commits and not afternoon_commits)
         or (unspecified_prs and not afternoon_prs and not afternoon_cal)
-        or (is_today and now_min >= 540)
+        or (is_today and now_min >= (start_filter_min if start_filter_min is not None else 540) and (start_filter_min is None or start_filter_min < 720))
     )
     has_work_afternoon_activity = (not afternoon_leave) and bool(
         work_afternoon_commits or work_afternoon_prs or work_afternoon_issues or work_afternoon_comments or work_afternoon_reviews or work_afternoon_cal
         or (unspecified_commits and not morning_commits)
         or (unspecified_prs and not morning_prs and not morning_cal)
-        or (is_today and now_min >= 780)
+        or (is_today and now_min >= (start_filter_min if (start_filter_min is not None and start_filter_min >= 780) else 780) and (end_filter_min is None or end_filter_min > 780))
     )
     has_evening_activity = bool(
         evening_commits or evening_prs or evening_issues or evening_comments or evening_reviews or evening_cal
@@ -587,9 +642,11 @@ def assign_items_to_blocks(
                     earliest_b = curr_morning[0]
                     earliest_m = time_to_minutes(earliest_b["start_time"])
                     target_morning_start = 540  # 09:00
+                    if start_filter_min is not None and start_filter_min > target_morning_start:
+                        target_morning_start = start_filter_min
                     if morning_commits:
                         earliest_c = min(time_to_minutes(c.get("time", "12:00")) for c in morning_commits if c.get("time"))
-                        if earliest_c < target_morning_start:
+                        if earliest_c < target_morning_start and (start_filter_min is None or earliest_c >= start_filter_min):
                             target_morning_start = earliest_c
 
                     if earliest_m > target_morning_start and (earliest_m - target_morning_start) >= 15:
@@ -662,7 +719,9 @@ def assign_items_to_blocks(
 
                     # 3. Trailing morning gap up to 12:00
                     target_morning_end = 720  # 12:00
-                    if is_today and now_min < 720:
+                    if end_filter_min is not None and end_filter_min < target_morning_end:
+                        target_morning_end = end_filter_min
+                    elif is_today and now_min < 720:
                         target_morning_end = min(720, (now_min // 15) * 15)
 
                     last_m_end = max_end_so_far
@@ -693,16 +752,22 @@ def assign_items_to_blocks(
         # 2. Afternoon extension and backfill:
         new_afternoon_blocks = []
         if has_work_afternoon_activity:
-            curr_afternoon = [b for b in structured_blocks if 780 <= time_to_minutes(b["start_time"]) < 1080]
+            curr_afternoon = [b for b in structured_blocks if (780 <= time_to_minutes(b["start_time"]) < 1080) or (start_filter_min is not None and time_to_minutes(b["start_time"]) >= start_filter_min and time_to_minutes(b["start_time"]) < 1080)]
             if not curr_afternoon:
                 start_m = 780
+                if start_filter_min is not None and start_filter_min > start_m:
+                    start_m = start_filter_min
                 end_m = time_to_minutes("18:00")
+                if end_filter_min is not None and end_filter_min < end_m:
+                    end_m = end_filter_min
                 if work_afternoon_commits:
                     max_c_time = max(time_to_minutes(c.get("time", "12:00")) for c in work_afternoon_commits if c.get("time"))
                     if max_c_time > end_m:
                         end_m = max_c_time
                 if is_today:
                     end_m = min(now_min, end_m)
+                if end_filter_min is not None:
+                    end_m = min(end_m, end_filter_min)
                 if start_m < end_m and (end_m - start_m) >= 15:
                     new_afternoon_blocks.append({
                         "block_id": 0,
@@ -724,8 +789,8 @@ def assign_items_to_blocks(
 
                 afternoon_dev_covers_all = any(
                     not is_meeting_block(b)
-                    and time_to_minutes(b["start_time"]) <= 780
-                    and time_to_minutes(b["end_time"]) >= 1080
+                    and time_to_minutes(b["start_time"]) <= (start_filter_min if (start_filter_min is not None and start_filter_min > 780) else 780)
+                    and time_to_minutes(b["end_time"]) >= (end_filter_min if (end_filter_min is not None and end_filter_min < 1080) else 1080)
                     for b in curr_afternoon
                 )
 
@@ -736,6 +801,8 @@ def assign_items_to_blocks(
                     earliest_a = curr_afternoon[0]
                     earliest_a_m = time_to_minutes(earliest_a["start_time"])
                     target_afternoon_start = 780  # 13:00
+                    if start_filter_min is not None and start_filter_min > target_afternoon_start:
+                        target_afternoon_start = start_filter_min
 
                     if earliest_a_m > target_afternoon_start and (earliest_a_m - target_afternoon_start) >= 15:
                         if not is_meeting_block(earliest_a):
@@ -792,6 +859,8 @@ def assign_items_to_blocks(
                             max_c_time = max(time_to_minutes(x.get("time", "12:00")) for x in work_act_items if x.get("time"))
                             if max_c_time > target_afternoon_end:
                                 target_afternoon_end = min(now_min, max_c_time + 15)
+                        if end_filter_min is not None and end_filter_min < target_afternoon_end:
+                            target_afternoon_end = end_filter_min
                         if target_afternoon_end - last_a_end >= 15:
                             last_a_block = new_afternoon_blocks[-1]
                             if not is_meeting_block(last_a_block) and not last_a_block.get("entry_id") and not last_a_block.get("prs") and not last_a_block.get("commits"):
@@ -826,6 +895,8 @@ def assign_items_to_blocks(
                                 start_m = max(780, last_a_end) if last_a_end >= 780 else 780
                                 max_late_time = max(time_to_minutes(x.get("time", "12:00")) for x in late_items)
                                 end_m = max(time_to_minutes("18:00"), max_late_time + 15)
+                                if end_filter_min is not None and end_filter_min < end_m:
+                                    end_m = end_filter_min
                                 new_afternoon_blocks.append({
                                     "block_id": 0,
                                     "title": "Afternoon Development",
@@ -844,18 +915,19 @@ def assign_items_to_blocks(
                                 last_a_end = end_m
 
                         # Complete normal workday to 18:00 (1080 min) if trailing gap >= 15 min and workday context exists
+                        workday_afternoon_target = end_filter_min if (end_filter_min is not None and end_filter_min < 1080) else 1080
                         has_workday_context = any(not is_meeting_block(b) for b in new_afternoon_blocks) or len(new_morning_blocks) > 0
-                        if has_workday_context and last_a_end < 1080 and (1080 - last_a_end) >= 15:
+                        if has_workday_context and last_a_end < workday_afternoon_target and (workday_afternoon_target - last_a_end) >= 15:
                             last_a_block = new_afternoon_blocks[-1]
                             if not is_meeting_block(last_a_block) and not last_a_block.get("entry_id") and not last_a_block.get("prs") and not last_a_block.get("commits"):
-                                last_a_block["end_time"] = "18:00"
-                                last_a_end = 1080
+                                last_a_block["end_time"] = f"{workday_afternoon_target // 60:02d}:{workday_afternoon_target % 60:02d}"
+                                last_a_end = workday_afternoon_target
                             else:
                                 new_afternoon_blocks.append({
                                     "block_id": 0,
                                     "title": "Afternoon Development",
                                     "start_time": f"{last_a_end // 60:02d}:{last_a_end % 60:02d}",
-                                    "end_time": "18:00",
+                                    "end_time": f"{workday_afternoon_target // 60:02d}:{workday_afternoon_target % 60:02d}",
                                     "source": "commits_prs",
                                     "entry_id": "",
                                     "project": "",
@@ -1553,6 +1625,27 @@ def assign_items_to_blocks(
         filtered_blocks.append(b)
     final_blocks = filtered_blocks
 
+    if start_filter_min is not None or end_filter_min is not None:
+        trimmed_blocks = []
+        for b in final_blocks:
+            st_m = time_to_minutes(b["start_time"])
+            et_m = time_to_minutes(b["end_time"])
+            if start_filter_min is not None:
+                if et_m <= start_filter_min:
+                    continue
+                if st_m < start_filter_min:
+                    st_m = start_filter_min
+                    b["start_time"] = f"{st_m // 60:02d}:{st_m % 60:02d}"
+            if end_filter_min is not None:
+                if st_m >= end_filter_min:
+                    continue
+                if et_m > end_filter_min:
+                    et_m = end_filter_min
+                    b["end_time"] = f"{et_m // 60:02d}:{et_m % 60:02d}"
+            if et_m - st_m >= 15:
+                trimmed_blocks.append(b)
+        final_blocks = trimmed_blocks
+
     # Re-index block_id sequentially
     for idx, b in enumerate(final_blocks):
         b["block_id"] = idx + 1
@@ -1589,7 +1682,7 @@ def assign_items_to_blocks(
     return result
 
 
-def generate_ai_payload(target_date: str) -> dict:
+def generate_ai_payload(target_date: str, start_time: str = None, end_time: str = None) -> dict:
     """Prepare the minimal token payload for the [AI] step."""
     commits = fetch_all_commits(target_date)
     prs = fetch_all_prs(target_date)
@@ -1598,7 +1691,8 @@ def generate_ai_payload(target_date: str) -> dict:
     issues = fetch_all_issues(target_date)
 
     blocks = assign_items_to_blocks(
-        events, commits, prs, target_date=target_date, comments=comments, reviews=reviews, issues=issues
+        events, commits, prs, target_date=target_date, comments=comments, reviews=reviews, issues=issues,
+        start_time=start_time, end_time=end_time
     )
 
     # Minimal payload passed to LLM for topic synthesis
@@ -1636,13 +1730,28 @@ def main():
     parser = argparse.ArgumentParser(description="Prepare minimal token payload for AI step.")
     parser.add_argument("date_pos", nargs="?", default=None, help="Target date YYYY-MM-DD or 'yesterday' (optional positional argument)")
     parser.add_argument("--date", default=None, help="Target date YYYY-MM-DD or 'yesterday'")
+    parser.add_argument("--start-time", help="Custom workday start time (e.g. 14:30 or 14h30)")
+    parser.add_argument("--end-time", help="Custom workday end time (e.g. 18:00 or 18h00)")
     parser.add_argument("--pretty", action="store_true", help="Pretty print JSON")
     args = parser.parse_args()
 
     raw_date = args.date or args.date_pos
     target_date = resolve_target_date(raw_date)
 
-    payload = generate_ai_payload(target_date)
+    start_time = args.start_time
+    end_time = args.end_time
+
+    full_cmd_str = " ".join(sys.argv)
+    if not start_time:
+        m_start = re.search(r"(?:start(?:ed|ing)?|from|at|went to work at|arrived at)\s+([0-2]?\d(?:[:hH][0-5]\d|h|\b))", full_cmd_str, re.IGNORECASE)
+        if m_start:
+            start_time = m_start.group(1)
+    if not end_time:
+        m_end = re.search(r"(?:end(?:ed|ing)?|until|to|leave at|left at)\s+([0-2]?\d(?:[:hH][0-5]\d|h|\b))", full_cmd_str, re.IGNORECASE)
+        if m_end:
+            end_time = m_end.group(1)
+
+    payload = generate_ai_payload(target_date, start_time=start_time, end_time=end_time)
     indent = 2 if args.pretty else None
     print(json.dumps(payload, indent=indent))
 

@@ -137,6 +137,24 @@ class TestWorkflowRunner(unittest.TestCase):
             pipeline_main()
         mock_run.assert_called_once_with("2026-10-12", False, None, False, remaining_only=False)
 
+    @patch("run_pipeline.run_daily_timesheet")
+    def test_pipeline_main_start_end_time_flags(self, mock_run):
+        """Test that run_pipeline.py parses --start-time and --end-time flags."""
+        from run_pipeline import main as pipeline_main
+        with patch("sys.argv", ["run_pipeline.py", "--dry-run", "2026-10-13", "--start-time", "14:30", "--end-time", "18:00"]):
+            pipeline_main()
+        mock_run.assert_called_once_with("2026-10-13", True, None, False, start_time="14:30", end_time="18:00")
+
+    @patch("run_pipeline.run_daily_timesheet")
+    def test_pipeline_main_natural_language_start_time(self, mock_run):
+        """Test that run_pipeline.py extracts start time from natural language input."""
+        from run_pipeline import main as pipeline_main
+        with patch("sys.argv", ["run_pipeline.py", "--dry-run", "log today but I went to work at 14h30"]):
+            pipeline_main()
+        import datetime
+        today_iso = datetime.date.today().isoformat()
+        mock_run.assert_called_once_with(today_iso, True, None, False, start_time="14h30")
+
 
 if __name__ == "__main__":
     unittest.main()
