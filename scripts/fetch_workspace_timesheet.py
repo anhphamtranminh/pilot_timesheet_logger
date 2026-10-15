@@ -31,6 +31,26 @@ def normalize_text_lines(text: str) -> str:
     return "\n".join(lines)
 
 
+MEETING_KEYWORDS = [
+    "meeting", "standup", "1:1", "catch-up", "q&a", "demo", "retro", "interview",
+    "kickoff", "discussion", "training", "workshop", "webinar", "seminar", "session",
+    "course", "lecture", "orientation", "onboarding", "all-hands", "presentation",
+    "ceremony", "townhall", "office hours", "sync", "sync-up", "grooming", "planning",
+    "team lunch", "lunch & learn"
+]
+
+
+def is_meeting_entry(entry: dict) -> bool:
+    """Return True if timesheet entry represents a meeting rather than generic dev."""
+    title = (entry.get("title") or entry.get("description") or "").strip()
+    if not title:
+        return False
+    if any(k in title.lower() for k in ("morning development", "afternoon development", "evening development", "daily development")):
+        return False
+    t_lower = title.lower()
+    return any(re.search(rf"\b{re.escape(k)}\b", t_lower) for k in MEETING_KEYWORDS)
+
+
 def resolve_gradion_token() -> str:
     """Resolve Gradion Workspace Personal API Token (PAT).
 
@@ -329,8 +349,8 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
     s_min = parse_time_min(start_time)
     e_min = parse_time_min(end_time)
 
-    # Ensure entry never spans across lunch break (12:00 - 13:00 / 720 - 780 mins)
-    if s_min < 720 and e_min > 720 and not entry.get("entry_id"):
+    # Ensure generic entry never spans across lunch break (12:00 - 13:00 / 720 - 780 mins)
+    if s_min < 720 and e_min > 780 and not entry.get("entry_id") and not is_meeting_entry(entry):
         chunk_morn = dict(entry)
         chunk_morn["end_time"] = "12:00"
         ok_morn = post_workspace_timesheet_entry(chunk_morn)

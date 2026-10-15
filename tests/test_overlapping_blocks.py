@@ -12,7 +12,8 @@ from prepare_prompt import assign_items_to_blocks
 from save_entry import save_or_update_block_entry
 from fetch_workspace_timesheet import (
     edit_workspace_timesheet_entry,
-    post_workspace_timesheet_entry
+    post_workspace_timesheet_entry,
+    is_meeting_entry
 )
 
 
@@ -741,7 +742,91 @@ class TestOverlappingBlocks(unittest.TestCase):
         # edit_workspace_timesheet_entry should NOT have been called because description and times are identical
         mock_edit.assert_not_called()
 
+    def test_midday_calendar_meeting_is_preserved_and_logged(self):
+        """Calendar meeting between 12:00 and 13:00 (e.g. 12:00 - 12:45) must be preserved in assigned blocks."""
+        blocks = [
+            {"title": "Morning Development", "start_time": "09:00", "end_time": "12:00", "source": "calendar"},
+            {"title": "Weekly Lunch & Learn", "start_time": "12:00", "end_time": "12:45", "source": "calendar"},
+            {"title": "Afternoon Development", "start_time": "13:00", "end_time": "18:00", "source": "calendar"}
+        ]
+        commits = [
+            {"time": "10:30", "subject": "feat: morning work", "repo": "pilot_timesheet", "prs": []},
+            {"time": "14:30", "subject": "feat: afternoon work", "repo": "pilot_timesheet", "prs": []}
+        ]
+        prs = []
+        assigned = assign_items_to_blocks(blocks, commits, prs, target_date="2026-10-15")
+
+        lunch_meetings = [b for b in assigned if "Lunch & Learn" in b["title"]]
+        self.assertEqual(len(lunch_meetings), 1)
+        self.assertEqual(lunch_meetings[0]["start_time"], "12:00")
+        self.assertEqual(lunch_meetings[0]["end_time"], "12:45")
+
+    def test_midday_meeting_spanning_lunch_not_truncated(self):
+        """Calendar meeting spanning lunch (e.g. 11:30 - 12:30 or 12:30 - 13:30) is not truncated."""
+        blocks = [
+            {"title": "Cross-Team Sync & Review", "start_time": "11:30", "end_time": "12:30", "source": "calendar"}
+        ]
+        commits = []
+        prs = []
+        assigned = assign_items_to_blocks(blocks, commits, prs, target_date="2026-10-15")
+
+        sync_meetings = [b for b in assigned if "Cross-Team Sync" in b["title"]]
+        self.assertEqual(len(sync_meetings), 1)
+        self.assertEqual(sync_meetings[0]["start_time"], "11:30")
+        self.assertEqual(sync_meetings[0]["end_time"], "12:30")
+
+    def test_midday_commits_generate_development_block(self):
+        """Activity/commits between 12:00 and 13:00 without calendar must generate a 12:00 - 13:00 development block."""
+        blocks = []
+        commits = [
+            {"time": "09:30", "subject": "feat: morning commit", "repo": "pilot_timesheet", "prs": []},
+            {"time": "12:20", "subject": "fix: midday urgent patch", "repo": "pilot_timesheet", "prs": []},
+            {"time": "15:00", "subject": "feat: afternoon commit", "repo": "pilot_timesheet", "prs": []}
+        ]
+        prs = []
+        assigned = assign_items_to_blocks(blocks, commits, prs, target_date="2026-10-15")
+
+        midday_blocks = [b for b in assigned if b["start_time"] == "12:00" and b["end_time"] == "13:00"]
+        self.assertEqual(len(midday_blocks), 1)
+        self.assertIn("fix: midday urgent patch", midday_blocks[0]["commit_subjects"])
+
+    def test_zero_midday_activity_leaves_lunch_omitted(self):
+        """When there is no activity and no meetings between 12:00 and 13:00, lunch is omitted."""
+        blocks = []
+        commits = [
+            {"time": "09:30", "subject": "feat: morning commit", "repo": "pilot_timesheet", "prs": []},
+            {"time": "15:00", "subject": "feat: afternoon commit", "repo": "pilot_timesheet", "prs": []}
+        ]
+        prs = []
+        assigned = assign_items_to_blocks(blocks, commits, prs, target_date="2026-10-15")
+
+        for b in assigned:
+            s_min = int(b["start_time"].split(":")[0]) * 60 + int(b["start_time"].split(":")[1])
+            e_min = int(b["end_time"].split(":")[0]) * 60 + int(b["end_time"].split(":")[1])
+            self.assertFalse(s_min >= 720 and e_min <= 780, f"Block {b['start_time']} - {b['end_time']} covers lunch!")
+
+    def test_workspace_timesheet_meeting_entry_preservation(self):
+        """is_meeting_entry correctly identifies meeting titles and does not split them across lunch in post_workspace_timesheet_entry."""
+        entry_meeting = {
+            "title": "Engineering All-Hands & Lunch Meeting",
+            "start_time": "11:30",
+            "end_time": "12:30",
+            "date": "2026-10-15",
+            "topic_summary": "Engineering All-Hands & Lunch Meeting"
+        }
+        self.assertTrue(is_meeting_entry(entry_meeting))
+
+        entry_dev = {
+            "title": "Morning Development",
+            "start_time": "09:00",
+            "end_time": "12:00",
+            "date": "2026-10-15",
+            "topic_summary": "Morning Development"
+        }
+        self.assertFalse(is_meeting_entry(entry_dev))
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
