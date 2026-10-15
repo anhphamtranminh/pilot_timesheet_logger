@@ -54,15 +54,21 @@ Pass your synthesized topic strings to the pipeline orchestrator to deterministi
 python3 scripts/run_pipeline.py --sync-workspace --topics-json '{"1": "<Synthesized Topic Sentence>"}'
 ```
 
-### Step 4: Record Token Usage [Script]
+### Step 4: Record & Monitor Token Usage [Script]
 Log session tokens to maintain evidence for token optimization tracking:
 ```bash
 python3 scripts/track_tokens.py --record --date <YYYY-MM-DD> --input-tokens <PROMPT_TOKENS> --output-tokens <COMPLETION_TOKENS>
+```
+Or inspect and visualize token metrics across monitored days:
+```bash
+python3 scripts/track_tokens.py --chart   # Terminal ASCII trend chart & budget compliance
+python3 scripts/track_tokens.py --html    # Interactive HTML dashboard in logs/token_stats.html
+python3 scripts/track_tokens.py --scan --keyword "log" --auto-record  # Scan assistant session transcripts
 ```
 
 ### Step 5: Report Summary to User
 Show the user:
 1. The formatted timesheet entry that was appended or updated.
 2. The Gradion Workspace synchronization status.
-3. The token usage confirmation (and chart status via `python3 scripts/track_tokens.py --chart`).
+3. The token usage confirmation and ASCII status chart (`python3 scripts/track_tokens.py --chart`).
 4. Note any anomalies in `logs/improvement_log.md` if an event was missing or unclear.
