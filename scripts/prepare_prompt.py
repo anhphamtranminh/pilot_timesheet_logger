@@ -1646,6 +1646,36 @@ def assign_items_to_blocks(
                 trimmed_blocks.append(b)
         final_blocks = trimmed_blocks
 
+    # Deduplicate identical time blocks (same start_time, end_time, title)
+    deduped_blocks = []
+    seen_block_indices = {}
+    for b in final_blocks:
+        st = b.get("start_time")
+        et = b.get("end_time")
+        title = b.get("title", "").strip()
+        key = (st, et, title)
+        if key in seen_block_indices:
+            # Merge items into the existing block
+            target = deduped_blocks[seen_block_indices[key]]
+            for c in b.get("commits", []):
+                if c not in target["commits"]:
+                    target["commits"].append(c)
+            target["prs"].update(b.get("prs", set()))
+            target["repos"].update(b.get("repos", set()))
+            target.setdefault("issues", set()).update(b.get("issues", set()))
+            for r in b.get("reviews", []):
+                if r not in target["reviews"]:
+                    target["reviews"].append(r)
+            for c in b.get("comments", []):
+                if c not in target["comments"]:
+                    target["comments"].append(c)
+            if not target.get("entry_id") and b.get("entry_id"):
+                target["entry_id"] = b["entry_id"]
+        else:
+            seen_block_indices[key] = len(deduped_blocks)
+            deduped_blocks.append(b)
+    final_blocks = deduped_blocks
+
     # Re-index block_id sequentially
     for idx, b in enumerate(final_blocks):
         b["block_id"] = idx + 1

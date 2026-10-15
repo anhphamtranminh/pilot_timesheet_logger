@@ -141,6 +141,9 @@ def run_daily_timesheet(
 
     is_multi_project = (len(all_day_repos) > 1) or any(r not in ("pilot_timesheet", "pilot_timesheet_logger") for r in all_day_repos)
 
+    saved_count = 0
+    unchanged_count = 0
+
     for idx, b in enumerate(blocks):
         commits = b.get("commit_subjects", [])
         prs = b.get("prs", [])
@@ -187,7 +190,11 @@ def run_daily_timesheet(
         formatted_entries.append(entry_dict)
 
         if not dry_run:
-            save_or_update_block_entry(entry_dict)
+            changed = save_or_update_block_entry(entry_dict)
+            if changed:
+                saved_count += 1
+            else:
+                unchanged_count += 1
             if sync_workspace:
                 try:
                     from fetch_workspace_timesheet import post_workspace_timesheet_entry
@@ -211,6 +218,9 @@ def run_daily_timesheet(
                 comments=entry_dict["comments"],
                 discussions=entry_dict.get("discussions", [])
             ))
+
+    if not dry_run and blocks:
+        print(f"\n[INFO] Timesheet save summary: {saved_count} saved/updated, {unchanged_count} unchanged.")
 
     return formatted_entries
 
