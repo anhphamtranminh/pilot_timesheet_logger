@@ -11,9 +11,23 @@ This document defines the daily execution procedure for the Personal Pilot Times
 - **[AI] steps:** Reserved strictly for judgment—synthesizing raw commit subjects into concise, cohesive engineering topics (e.g., combining 5 commit messages into *"Personal pilot timesheet logger implementation, GitHub PR tracking, and token usage analytics"*), and evaluating ambiguous calendar meetings.
 
 ### Token Budget Target: < 350 tokens / day
-- **Target prompt tokens:** ~150 – 200 tokens
-- **Target completion tokens:** ~80 – 120 tokens
-- **Target total:** < 350 tokens per run
+- **Target prompt tokens ($T_{\text{in}}$):** ~150 – 200 tokens (ceiling < 300)
+- **Target completion tokens ($T_{\text{out}}$):** ~80 – 120 tokens
+- **Target total tokens ($T_{\text{total}}$):** < 350 tokens per run / day
+- **Target Budget Compliance Rate:** $\ge 85\%$ of logged days within budget
+
+#### Token Metrics Hierarchy:
+| Metric | Definition | Measurement / Target | Scope |
+| :--- | :--- | :--- | :--- |
+| **Input Tokens ($T_{\text{in}}$)** | Tokens sent in Step 3 prompt payload | ~150–200 (max < 300) | Commit subjects + PR numbers + event title |
+| **Output Tokens ($T_{\text{out}}$)** | Tokens in synthesized topic strings | ~80–120 tokens | 1 cohesive sentence per block |
+| **Cache Tokens ($T_{\text{cache}}$)** | Context cache reads/writes | Runtime-dependent | Logged to CSV |
+| **Total Session Tokens ($T_{\text{total}}$)** | Sum of input, output, and cache tokens | **< 350 tokens** | Step 3 AI interaction |
+| **Compliance Rate** | Ratio of days meeting budget ceiling | $\ge 85\%$ | Monitored across all logged sessions |
+
+#### Architectural Scope Boundary:
+- **0-Token [Script] Execution:** Git commit mining, PR fetching via `gh`, calendar parsing, timestamp overlap math, entry formatting, markdown appending, and Gradion Workspace API synchronization are all 100% deterministic local Python operations consuming **0 LLM tokens**.
+- **LLM Token Scope:** Only Step 3 (`[AI]` Topic Synthesis) and occasional edge-case analysis in Step 7 consume tokens against the 350 daily token limit.
 
 #### How the [AI] input is kept minimal:
 1. **No raw git logs:** Full diffs, file trees, parent hashes, and author metadata are stripped out by `scripts/fetch_git.py`. Only concise commit subjects and timestamps are retained.
@@ -32,7 +46,7 @@ This document defines the daily execution procedure for the Personal Pilot Times
 | **3. Topic Synthesis** | **[AI]** | Evaluate time blocks: synthesize commit subjects into grouped high-level topics; verify work relevance. | AI Assistant (Judgment) |
 | **4. Entry Formatting** | **[Script]** | Validate required fields (`Date`, `Start time`, `End time`, `Description`, `PRs:` inline, source trace) and render standard markdown. | `scripts/format_entry.py` |
 | **5. Persistent Storage & Sync** | **[Script]** | Idempotently write entries to monthly log (`logs/timesheet_YYYY-MM.md`) and sync with Gradion Workspace. | `scripts/save_entry.py`<br>`scripts/fetch_workspace_timesheet.py` |
-| **6. Token Measurement** | **[Script]** | Record session token usage (input, output, total) into tracking CSV. | `scripts/track_tokens.py` |
+| **6. Token Measurement** | **[Script]** | Record session token usage (input, output, cache, total) into persistent CSV (`logs/token_usage.csv`) and update ASCII / HTML metrics. | `scripts/track_tokens.py` |
 | **7. Improvement Log** | **[AI]** | Document any edge cases or anomalies in `logs/improvement_log.md` for Friday review. | AI Assistant & Intern |
 
 ---
@@ -70,4 +84,19 @@ python3 scripts/run_pipeline.py --sync-workspace --topics-json '{"1": "<AI Synth
 ### C. Dry-Run Preview (No Disk Writes)
 ```bash
 python3 scripts/run_pipeline.py --dry-run
+```
+
+### D. Token Monitoring & Metrics Inspection
+```bash
+# Display visual ASCII consumption table and compliance statistics
+python3 scripts/track_tokens.py --chart
+
+# Generate interactive HTML / SVG visual dashboard
+python3 scripts/track_tokens.py --html
+
+# Scan session transcripts for 'log' prompts and auto-record tokens
+python3 scripts/track_tokens.py --scan --keyword "log" --auto-record
+
+# Record a completed run's tokens manually
+python3 scripts/track_tokens.py --record --date YYYY-MM-DD --input-tokens <IN> --output-tokens <OUT>
 ```

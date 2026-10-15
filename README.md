@@ -107,24 +107,69 @@ Each entry adheres to the structured format matching the timesheet interface and
 
 ## Token Efficiency and Tracking
 
-The tool tracks prompt and completion token usage across all daily runs to keep execution lightweight:
+The tool tracks prompt and completion token usage across all daily runs to keep execution lightweight and adhere strictly to the target budget of **< 350 tokens/day**:
 
-- **Token Budget:** Keeps prompt input compact (~50-150 tokens) and total session usage low (< 350 tokens).
-- **CSV Log:** Stored in `logs/token_usage.csv`.
-- **HTML Visual Dashboard:** `logs/token_stats.html`.
-- **Terminal Status:** Run `python3 scripts/track_tokens.py --chart` to inspect daily trends.
+### 1. Token Metrics Hierarchy
+
+| Metric | Target / Ceiling | Description | Scope / Formula |
+| :--- | :---: | :--- | :--- |
+| **Input / Prompt Tokens ($T_{\text{in}}$)** | ~150–200 tokens (ceiling < 300) | Tokens sent to LLM during Step 3 Topic Synthesis | Raw commit subjects + calendar title (stripped of diffs, hashes, attendees) |
+| **Output / Completion Tokens ($T_{\text{out}}$)** | ~80–120 tokens | Tokens returned by LLM | 1 concise synthesized topic sentence per block |
+| **Cache Tokens ($T_{\text{cache}}$)** | Context cache reads/writes | Cache reads/writes when available in assistant runtime | Stored in tracking CSV |
+| **Total Session Tokens ($T_{\text{total}}$)** | **< 350 tokens/day** | Cumulative tokens used per daily execution | $T_{\text{total}} = T_{\text{in}} + T_{\text{out}} + T_{\text{cache}}$ |
+| **Budget Compliance Rate** | $\ge 85\%$ | Percentage of logged days within the < 350 token budget | $(\text{Compliant Days} / \text{Monitored Days}) \times 100\%$ |
+| **Daily Average** | Historical mean | Rolling average of total tokens per logged day | $\sum T_{\text{total}} / N$ |
+
+> [!NOTE]
+> **Architectural Boundary:** Deterministic steps (`[Script]`: git commit extraction, PR querying, iCal feed parsing, overlap reconciliation, markdown formatting, file writing, and Gradion Workspace synchronization) run via local Python scripts and consume **0 LLM tokens**. The token budget applies strictly to Step 3 (`[AI]` Topic Synthesis).
+
+### 2. Where Tokens Are Tracked & Monitored
+
+- **Persistent Historical CSV:** [`logs/token_usage.csv`](file:///Users/anh.phamminh/Documents/pilot_timesheet/logs/token_usage.csv) stores structured records (`date`, `session_id`, `input_tokens`, `output_tokens`, `cache_tokens`, `total_tokens`, `workflow_version`, `notes`).
+- **Terminal Status & ASCII Trend Chart:** Run `python3 scripts/track_tokens.py --chart` to display the daily consumption breakdown, visual bar chart, and summary compliance metrics.
+- **Visual HTML / SVG Dashboard:** Run `python3 scripts/track_tokens.py --html` to generate an interactive report at [`logs/token_stats.html`](file:///Users/anh.phamminh/Documents/pilot_timesheet/logs/token_stats.html).
+- **Dry-Run Test Runner:** Run `python3 scripts/test_workflow.py` (or `./log-test`) to preview prompt token estimation and budget compliance without writing files.
+
+### 3. CLI Tracking Commands
+
+```bash
+# Display terminal ASCII / Unicode trend chart
+python3 scripts/track_tokens.py --chart
+
+# Generate visual HTML / SVG statistical dashboard
+python3 scripts/track_tokens.py --html
+
+# Scan session transcripts for 'log' prompts and auto-record tokens
+python3 scripts/track_tokens.py --scan --keyword "log" --auto-record
+
+# Manually record a run's token consumption
+python3 scripts/track_tokens.py --record --date 2026-10-15 --input-tokens 145 --output-tokens 55
+
+# Print daily token summary for a specific date
+python3 scripts/track_tokens.py --summary --date 2026-10-15
+```
+
+### 4. Terminal Chart Output Example
 
 ```
-======================================================================
-  DAILY TOKEN USAGE (Target Budget: < 350 tokens)
-======================================================================
-Date         Runs  Tokens   Target   Status  Visual
-----------------------------------------------------------------------
-2026-10-06      1     185      350   PASS    [##########                  ] 52.9%
-2026-10-07      2     320      350   PASS    [##################          ] 91.4%
-2026-10-08      1     134      350   PASS    [#######                     ] 38.3%
-----------------------------------------------------------------------
-Average Daily Usage: 213 tokens/day (60.9% of budget)
+======================================================================================
+ DAILY TOKEN CONSUMPTION vs BUDGET (Target: < 350 tokens/day)
+======================================================================================
+ Date       | Input | Output | Total | % Budget | Bar Chart (Scale: 350 tokens max)
+------------+-------+--------+-------+----------+------------------------------------
+ 2026-10-06 |   180 |     95 |   275 |    78.6% | [███████████████████████████░░░░░░░░] [PASS]
+ 2026-10-07 |   379 |    110 |   489 |   139.7% | [███████████████████████████████████] [OVER]
+ 2026-10-08 |   104 |     40 |   144 |    41.1% | [██████████████░░░░░░░░░░░░░░░░░░░░░] [PASS]
+ 2026-10-09 |   139 |     55 |   194 |    55.4% | [███████████████████░░░░░░░░░░░░░░░░] [PASS]
+ 2026-10-12 |   156 |     65 |   221 |    63.1% | [██████████████████████░░░░░░░░░░░░░] [PASS]
+ 2026-10-13 |   124 |     50 |   174 |    49.7% | [█████████████████░░░░░░░░░░░░░░░░░░] [PASS]
+--------------------------------------------------------------------------------------
+ Summary Statistics:
+  • Monitored Days:      6
+  • Daily Average:       249.5 tokens/day
+  • Min / Max Tokens:    144 / 489 tokens
+  • Budget Compliance:   83.3% (5/6 days within < 350 budget)
+======================================================================================
 ```
 
 ---
