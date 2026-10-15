@@ -663,6 +663,84 @@ class TestOverlappingBlocks(unittest.TestCase):
         cand_3 = {"start_time": "17:45", "end_time": "18:31", "title": "Wrap up"}
         self.assertTrue(is_block_already_blocked(cand_3, existing_blocks))
 
+    def test_save_or_update_block_entry_idempotent_unchanged(self):
+        """Saving an exact identical entry twice should not rewrite file and return False on second call."""
+        test_log = Path("/tmp/test_timesheet_idempotent.md")
+        if test_log.exists():
+            test_log.unlink()
+
+        entry = {
+            "date": "2026-10-14",
+            "start_time": "09:00",
+            "end_time": "12:00",
+            "topic_summary": "Core algorithm development and testing",
+            "prs": ["#12"],
+            "source_title": "Morning Development",
+            "repos": ["pilot_timesheet"],
+            "commit_subjects": ["feat: core algorithm implementation"]
+        }
+
+        # First save: should write and return True
+        res_first = save_or_update_block_entry(entry, custom_log_path=test_log)
+        self.assertTrue(res_first)
+        self.assertTrue(test_log.exists())
+        content_first = test_log.read_text(encoding="utf-8")
+
+        # Second save with exact same data: should skip rewrite and return False
+        res_second = save_or_update_block_entry(entry, custom_log_path=test_log)
+        self.assertFalse(res_second)
+        content_second = test_log.read_text(encoding="utf-8")
+        self.assertEqual(content_first, content_second)
+        self.assertEqual(content_second.count("### 2026-10-14 | 09:00 - 12:00"), 1)
+
+        # Third save with modified data: should update and return True
+        modified_entry = dict(entry)
+        modified_entry["topic_summary"] = "Enhanced core algorithm with caching"
+        res_third = save_or_update_block_entry(modified_entry, custom_log_path=test_log)
+        self.assertTrue(res_third)
+        content_third = test_log.read_text(encoding="utf-8")
+        self.assertIn("Enhanced core algorithm with caching", content_third)
+        self.assertEqual(content_third.count("### 2026-10-14 | 09:00 - 12:00"), 1)
+
+        if test_log.exists():
+            test_log.unlink()
+
+    def test_assign_items_to_blocks_deduplicates_duplicate_blocks(self):
+        """Duplicate blocks with identical start time, end time, and title should be deduplicated and merged."""
+        blocks = [
+            {"title": "Team Sync", "start_time": "09:00", "end_time": "09:30", "source": "calendar"},
+            {"title": "Team Sync", "start_time": "09:00", "end_time": "09:30", "source": "calendar"}
+        ]
+        commits = [
+            {"time": "09:10", "subject": "chore: sync notes", "repo": "pilot_timesheet", "prs": []}
+        ]
+        prs = []
+
+        assigned = assign_items_to_blocks(blocks, commits, prs, target_date="2026-10-14")
+        team_sync_blocks = [b for b in assigned if b["title"] == "Team Sync"]
+        self.assertEqual(len(team_sync_blocks), 1)
+        self.assertIn("chore: sync notes", team_sync_blocks[0]["commit_subjects"])
+
+    @patch("fetch_workspace_timesheet.edit_workspace_timesheet_entry")
+    @patch("fetch_workspace_timesheet.resolve_gradion_token", return_value="fake-token")
+    def test_post_workspace_timesheet_entry_skips_when_identical(self, mock_token, mock_edit):
+        """post_workspace_timesheet_entry must skip edit_time when existing entry description and times match."""
+        entry = {
+            "entry_id": "uuid-test-1234",
+            "start_time": "14:00",
+            "end_time": "16:00",
+            "date": "2026-10-14",
+            "topic_summary": "Architecture refactoring",
+            "description": "Architecture refactoring",
+            "commit_subjects": [],
+            "prs": [],
+            "repos": []
+        }
+        res = post_workspace_timesheet_entry(entry)
+        self.assertTrue(res)
+        # edit_workspace_timesheet_entry should NOT have been called because description and times are identical
+        mock_edit.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

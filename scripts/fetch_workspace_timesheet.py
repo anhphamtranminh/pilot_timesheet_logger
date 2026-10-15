@@ -25,6 +25,12 @@ GRADION_BASE_URL = "https://workspace.gradion.com"
 SKILL_BUNDLE_VERSION = "1.9.0"
 
 
+def normalize_text_lines(text: str) -> str:
+    """Normalize multiline text by stripping whitespace on each line and removing blank lines."""
+    lines = [l.strip() for l in (text or "").strip().splitlines() if l.strip()]
+    return "\n".join(lines)
+
+
 def resolve_gradion_token() -> str:
     """Resolve Gradion Workspace Personal API Token (PAT).
 
@@ -113,7 +119,8 @@ def parse_mcp_entries_text(text: str, target_date: str) -> list:
                 "project": proj.strip(),
                 "status": status.strip(),
                 "source": "workspace_timesheet",
-                "entry_id": entry_id or ""
+                "entry_id": entry_id or "",
+                "description": desc.strip()
             })
     blocks.sort(key=lambda x: x["start_time"])
     return blocks
@@ -353,6 +360,15 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
     # If entry_id is explicitly provided, update existing entry via edit_time
     entry_id = entry.get("entry_id")
     if entry_id:
+        existing_desc = entry.get("description", "")
+        if (
+            existing_desc
+            and normalize_text_lines(existing_desc) == normalize_text_lines(desc)
+            and entry.get("start_time") == start_time
+            and entry.get("end_time") == end_time
+        ):
+            print(f"[INFO] Gradion Workspace entry ({entry_id[:8]}...) is already up to date; skipping update.")
+            return True
         return edit_workspace_timesheet_entry(
             entry_id=entry_id,
             desc=desc,
@@ -407,6 +423,14 @@ def post_workspace_timesheet_entry(entry: dict) -> bool:
                 if candidates:
                     # Choose entry with greatest overlap
                     best_overlap, best_eb = max(candidates, key=lambda c: c[0])
+                    if (
+                        best_eb.get("description")
+                        and normalize_text_lines(best_eb.get("description")) == normalize_text_lines(desc)
+                        and best_eb.get("start_time") == start_time
+                        and best_eb.get("end_time") == end_time
+                    ):
+                        print(f"[INFO] Gradion Workspace entry ({best_eb['entry_id'][:8]}...) is already up to date; skipping update.")
+                        return True
                     return edit_workspace_timesheet_entry(
                         entry_id=best_eb["entry_id"],
                         desc=desc,

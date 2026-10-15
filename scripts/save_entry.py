@@ -14,6 +14,12 @@ from config import find_project_root, load_config
 from format_entry import format_single_entry
 
 
+def normalize_block_markdown(text: str) -> str:
+    """Normalize markdown block text by stripping trailing whitespace on each line and leading/trailing blank lines."""
+    lines = [l.rstrip() for l in (text or "").strip().splitlines()]
+    return "\n".join(lines).strip()
+
+
 def get_monthly_log_path(date_str: str) -> Path:
     """Get path to the monthly timesheet log file (e.g., logs/timesheet_2026-10.md)."""
     root = find_project_root()
@@ -162,8 +168,13 @@ def save_or_update_block_entry(entry_dict: dict, custom_log_path: Path = None) -
         re.DOTALL
     )
 
-    if exact_pattern.search(content):
-        updated_content = exact_pattern.sub(entry_md.strip(), content)
+    exact_match = exact_pattern.search(content)
+    if exact_match:
+        matched_text = exact_match.group(1)
+        if normalize_block_markdown(matched_text) == normalize_block_markdown(entry_md):
+            print(f"[INFO] Block for {date_str} ({start_time} - {end_time}) already up to date (unchanged) in {log_path.name}")
+            return False
+        updated_content = exact_pattern.sub(lambda _: entry_md.strip(), content)
         log_path.write_text(updated_content, encoding="utf-8")
         print(f"[OK] Updated existing entry for {date_str} ({start_time} - {end_time}) in {log_path.name}")
         return True
@@ -195,12 +206,15 @@ def save_or_update_block_entry(entry_dict: dict, custom_log_path: Path = None) -
             overlap = min(e_min, ex_e) - max(s_min, ex_s)
             if overlap > 0:
                 if ex_st == start_time or s_min <= ex_s:
-                    content = content.replace(matched_text.strip(), entry_md.strip())
+                    if normalize_block_markdown(matched_text) == normalize_block_markdown(entry_md):
+                        print(f"[INFO] Block for {date_str} ({start_time} - {end_time}) already up to date (unchanged) in {log_path.name}")
+                        return False
+                    content = content.replace(matched_text.strip(), entry_md.strip(), 1)
                     log_path.write_text(content, encoding="utf-8")
                     print(f"[OK] Replaced oversized placeholder for {date_str} ({ex_st} - {ex_et} -> {start_time} - {end_time}) in {log_path.name}")
                     return True
                 else:
-                    content = content.replace(matched_text.strip(), "").strip()
+                    content = content.replace(matched_text.strip(), "", 1).strip()
                     if not content.endswith("\n\n"):
                         content += "\n\n"
                     break
@@ -209,7 +223,10 @@ def save_or_update_block_entry(entry_dict: dict, custom_log_path: Path = None) -
         if overlap > 0:
             # If same start time or overlap covers majority of the block
             if ex_st == start_time or (current_dur > 0 and overlap / current_dur >= 0.75):
-                content = content.replace(matched_text.strip(), entry_md.strip())
+                if normalize_block_markdown(matched_text) == normalize_block_markdown(entry_md):
+                    print(f"[INFO] Block for {date_str} ({start_time} - {end_time}) already up to date (unchanged) in {log_path.name}")
+                    return False
+                content = content.replace(matched_text.strip(), entry_md.strip(), 1)
                 log_path.write_text(content, encoding="utf-8")
                 print(f"[OK] Replaced overlapping entry for {date_str} ({ex_st} - {ex_et} -> {start_time} - {end_time}) in {log_path.name}")
                 return True
